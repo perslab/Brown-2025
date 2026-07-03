@@ -1,0 +1,351 @@
+---
+title: "Figure_1"
+output: html_document
+date: "2024-07-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+#Libraries
+```{r}
+#devtools::install_github("phillipnicol/scDist")
+#install.packages('ashr')
+#install.packages('janitor')
+library(janitor)
+library(ashr)
+library(scDist)
+library(WRS2)
+set.seed(1126490984)
+```
+# Define a custom theme
+```{r}
+custom_theme <- theme(
+  text = element_text(size = 12),
+  axis.title = element_text(size = 12),
+  axis.text = element_text(size = 12),
+  legend.title = element_blank(),
+  legend.position = "none",
+  panel.background = element_blank(),  # Remove panel background
+  panel.grid.major = element_blank(),  # Remove major grid lines
+  panel.grid.minor = element_blank(),  # Remove minor grid lines
+  axis.line.y = element_line(color = "black", size = 0.5),  # Add y-axis line
+  axis.line.x = element_line(color = "black", size = 0.5), axis.ticks.y = element_line(color = "black", size = 0.5),  # Add y-axis ticks
+  axis.ticks.x = element_line(color = "black", size = 0.5)   # Add x-axis ticks   # Add x-axis line
+)
+
+# Create a new theme based on custom_theme for glucose timecourse
+custom_theme_with_legend <- custom_theme +
+  theme(legend.position = "top") 
+```
+
+http://www.sthda.com/english/wiki/ggplot2-line-plot-quick-start-guide-r-software-and-data-visualization
+```{r}
+data_summary <- function(data, varname, groupnames){
+  require(plyr)
+
+  summary_func <- function(x, col){
+    n <- length(x[[col]][!is.na(x[[col]])])  # Number of non-NA observations
+    sd_value <- sd(x[[col]], na.rm=TRUE)  # Standard Deviation
+
+    c(mean = mean(x[[col]], na.rm=TRUE),
+      sd = sd_value,
+      sem = sd_value / sqrt(n))  # Standard Error of the Mean
+  }
+
+  data_sum <- ddply(data, groupnames, .fun=summary_func, varname)
+  data_sum <- rename(data_sum, c("mean" = varname))
+  return(data_sum)
+}
+```
+
+#Plot Body Weight
+```{r}
+body_weight <-readRDS("/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Anthropometrics/Clamp_timecouse_data_Treatment_Groups_GIR.rds")
+
+p <- body_weight %>% 
+  filter(time == 60) %>%
+  ggplot(aes(x = factor(diet), y = BW, fill = factor(diet))) +
+  geom_boxplot() +
+  geom_jitter(width = 0.2, size = 1.5, color = "black") +
+  scale_fill_manual(values = c('1' = 'white', '2' = 'white')) +
+  scale_x_discrete(labels = c('Control', 'HFD')) +
+  xlab("") +
+  ylab("Body Weight (g)") +
+  scale_y_continuous(limits = c(18, 40)) + 
+  theme_minimal() +
+  custom_theme
+# Print the plot
+print(p)
+
+pdf(file= "/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Plots/BW_values_new.pdf", height = 2.7, width = 2.2)
+p
+dev.off()
+table(body_weight$id, body_weight$Group)
+result <- yuen(BW~diet, data=body_weight)
+result$p.value
+t.test(BW ~ diet, data = body_weight)
+
+
+ggsave(plot = p, filename = "/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/plots/BW_values_new.png",
+        height = 2.7, width = 2.2, dpi = 400)
+
+```
+#Create Glucose Plot
+```{r}
+data.group<- readRDS("/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Anthropometrics/Clamp_timecouse_data_Treatment_Groups.rds")
+
+bg_mean_sem <- data_summary(data.group, varname="bg", 
+                    groupnames=c("Group", "time"))
+attach(data.group)
+ex.f2f14<-f1.ld.f1(bg,time,Group,id,time.name="time", group.name="Group")
+summary(ex.f2f14)
+print(ex.f2f14)
+
+```
+#Plot GLucose timecourse data
+```{r}
+# Create the first plot
+Bg.plot <- ggplot(data = bg_mean_sem, aes(x = time, y = bg, col = Group, group = Group, linetype = Group)) +  
+  geom_errorbar(aes(ymin = bg, ymax = bg + bg_sem), width = 0.15, size = 0.4) +
+  geom_line(size = 0.6) +
+  geom_point(size = 1.5) +
+  scale_x_continuous(name = "Time (min)", 
+                     breaks = seq(-5, 60, 5))  +
+  scale_y_continuous(name = "Blood Glucose (mmol/L)", 
+                     breaks = seq(0, 30, 10),
+                     limits = c(0, 30)) +
+  theme_pubr(legend = "top") + 
+  guides(col = guide_legend(nrow = 1, byrow = TRUE)) +
+  scale_color_manual(values = c("grey", "grey", "black", "black")) +
+  scale_linetype_manual(values = c("dashed", "solid", "dashed", "solid")) +
+  custom_theme_with_legend
+
+BG.mouse.plot <- Bg.plot +
+  annotate("segment", x = 62, xend = 62, y = 18, yend = 20.5, 
+           colour = "black", size = 0.5) +  # Add line
+  annotate("text", x = 62 + 2, y = (18 + 20.5)/2, 
+           label = "NS", size = 4, vjust = 0)  # Add text
+
+plot <- BG.mouse.plot +
+  annotate("segment", x = 62, xend = 62, y = 7.5, yend = 10, 
+           colour = "black", size = 0.5) +  # Add line
+  annotate("text", x = 62 + 2, y = (7.5+10)/2, 
+           label = "NS", size = 4, vjust = 0)
+
+pdf(file= "/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Plots/Fig1c_bg_timecourse.pdf", height = 3.5, width = 5)
+plot
+dev.off()
+```
+#Plot Insulin Sensitivity
+```{r}
+df_sens_2<- readRDS("/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Anthropometrics/ID_Groups_Insulin_Sensitivity_average_across_clamp.rds")
+
+pl <- df_sens_2 %>% 
+  filter(Group %in% c("Con_Glu", "HF_Glu")) %>%
+  ungroup() %>%
+  ggplot(aes(x = Group, y = ins_sens_val, fill = Group)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.1, size = 1.5, color = "black") +
+  scale_fill_manual(values = c("Con_Glu" = 'white', "HF_Glu" = 'white')) +
+  scale_x_discrete(labels = c('Con_Glu', 'HF_Glu')) +
+  xlab("") +
+  ylab("IS Metric(GIR/Plasma Insulin)") +
+  scale_y_continuous(limits = c(0, 25)) + 
+  theme_minimal() +
+  custom_theme
+# Print the plot
+print(pl)
+
+pdf(file= "/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Plots/IS_values_new.pdf", height = 2.7, width = 2.2)
+pl
+dev.off()
+
+result <- yuen(df_sens_2$ins_sens_val~factor(df_sens_2$Group), data=df_sens_2)
+
+result$p.value
+pb2gen(df_sens_2$ins_sens_val~factor(df_sens_2$Group), data=df_sens_2)
+
+selected_data_1 <- df_sens_2 %>%
+  filter(Group %in% c("Con_Glu"))
+
+selected_data_2 <- df_sens_2 %>%
+  filter(Group %in% c("HF_Glu"))
+
+Check T-test results
+t.test(selected_data_1$ins_sens_val,selected_data_2$ins_sens)
+
+ggsave(plot = p, filename = "/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Plots/IS_values_new.png",
+        height = 2.7, width = 2.2, dpi = 400)
+```
+
+
+#Load Single Nucleus Data
+```{r}
+seur_obj <- qread("/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Data/Raw_filtered_labeled_arc_dvc_major_class.qs")
+seur_obj[[]]
+DimPlot(seur_obj, group.by = "brainR")
+table(seur_obj$major.class, seur_obj$brainR)
+```
+
+#Generate UMAP colored by Brain Region 
+```{r}
+umap.embed.cells <- as.data.frame(seur_obj@reductions$umap@cell.embeddings)
+umap.embed.cells$brainR <- seur_obj$brainR
+shuffled_umap.embed <- umap.embed.cells[sample(nrow(umap.embed.cells)), ] 
+label <- data.frame(brainR = unique(seur_obj$brainR))
+label <- umap.embed.cells %>% 
+  dplyr::group_by(brainR) %>% 
+  dplyr::summarize(x = median(UMAP_1), y = median(UMAP_2)) 
+# Plot
+label <- data.frame(
+  brainR = c("Arcuate & Ventromedial Nucleus", "Dorsal Vagal Complex"), # Your labels
+  x = c(3, -13), # Specify exact X coordinates for each label
+  y = c(10, -8
+        )  # Specify exact Y coordinates for each label
+)
+pal <- c("Arcuate & Ventromedial Nucleus" = "#faa32b", "Dorsal Vagal Complex" = "#237194")
+pal<-c("ARC"= "#faa32b","DVC"="#237194")
+umap.plot <- ggplot(data = shuffled_umap.embed, mapping = aes(x = UMAP_1, y = UMAP_2, colour = brainR)) +
+  geom_point(size = 0.4, alpha = 0.5) +
+  guides(x = guide_axis_truncated(trunc_lower = unit(0, "npc"), trunc_upper = unit(2, "cm")),
+         y = guide_axis_truncated(trunc_lower = unit(0, "npc"), trunc_upper = unit(2, "cm"))) +
+  theme_pubr() + # Ensure you have the necessary package for theme_pubr()
+  theme(axis.line = element_line(arrow = arrow(type='closed',length = unit(0.2, "cm")), size = 0.5),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        panel.border = element_blank(), 
+        panel.background = element_blank(), 
+        legend.position = "None",
+        axis.title.x = element_text(size=7, face="bold", hjust = 0, vjust = 2),
+        axis.title.y = element_text(size=7, face="bold", hjust = 0, vjust = 0, angle = 90),
+        axis.text = element_text(size=7, face="bold")) + 
+  xlab("UMAP 1") + ylab("UMAP 2") + 
+  scale_color_manual(values = pal) +
+  geom_text_repel(data = label, col= pal, aes(label = brainR, x = x, y = y), 
+                  size = 4, force = 1, inherit.aes = FALSE)
+umap.plot
+ggsave(plot = umap.plot, filename = "/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Plots/Arc_dvc_celltype_clusters_umap_12.png",
+        height = 4, width = 4, dpi = 600)
+
+pdf(file= "/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Plots/newArc_dvc_celltype_clusters_umap.pdf", height = 4, width = 4)
+umap.plot
+dev.off()
+```
+
+#Generate UMAP colored by cell type
+```{r}
+
+custom_palette <-c("Astrocytes"= "#A784B7",
+"Endothelial_cells"= "#e49444",  
+"Ependymal_cells"="#d1615d" ,        
+"Microglia"= "#85b6b2",           
+"Neuron"=  "#84CFB9",
+"Oligodendrocytes"= "#6a9f58",           
+"OPC"="#e7ca60",         
+"Pericytes"="#a87c9f",       
+"Tanycytes"= "#f1a2a9",   
+"Tanycytes_like"= "#E3A6A1",            
+"VLMC"= "#967662")
+
+umap.embed.cells <- as.data.frame(seur_obj@reductions$umap@cell.embeddings)
+umap.embed.cells$major.class <- seur_obj$major.class
+label <- data.frame(sub.class = unique(seur_obj$major.class))
+label <- umap.embed.cells %>% 
+  dplyr::group_by(major.class) %>% 
+  dplyr::summarize(x = median(UMAP_1), y = median(UMAP_2)) 
+# Plot
+umap.plot <-ggplot(data = umap.embed.cells, mapping = aes(x = UMAP_1, y = UMAP_2, 
+                                                          colour = major.class)) +
+  geom_point(size = 0.4, alpha = 0.5) +
+  guides(x = guide_axis_truncated(trunc_lower = unit(0, "npc"), trunc_upper = unit(0, "cm")),
+         y = guide_axis_truncated(trunc_lower = unit(0, "npc"), trunc_upper = unit(0, "cm"))) +
+  theme_pubr() +
+  theme(axis.line = element_line(arrow = arrow(type='closed',length = unit(0, "cm")), size = 0),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        panel.border = element_blank(), 
+        panel.background = element_blank(), 
+        legend.position = "None",
+        axis.title.x = element_text(size=0, face="bold", hjust = 0, vjust = 2),
+        axis.title.y = element_text(size=0, face="bold", hjust = 0, vjust = 0, angle = 90),
+        axis.text = element_text(size=0, face="bold")) + 
+  xlab("UMAP 1") + ylab("UMAP 2") + 
+  scale_color_manual(values = custom_palette) +
+  geom_text_repel(data = label, aes(label = major.class, x=x, y=y), 
+                  size=4,force = 1, inherit.aes = F)
+umap.plot
+
+ggsave(plot = umap.plot, filename = "/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Plots/Dvc_Arc_major.class_umap.png",
+        height = 4, width = 4, dpi = 500)
+
+pdf(file= "/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Plots/new_Dvc_Arc_major.class_umap.pdf", height = 4, width = 4)
+umap.plot
+dev.off()
+```
+#Run scDist Analysis 
+```{r}
+merged_all <- qread("/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Data/Raw_filtered_labeled_arc_dvc_major_class.qs")
+# 1) Count the number of cells per (sample.ID, major.class)
+df_counted <- merged_all[[]] %>%
+  dplyr::group_by(sample.ID,brainR,major.class) %>%
+  dplyr::summarise(n = n(), .groups = "drop")
+
+# 2) For each major.class, contain cells froma all sample with at least 4 samples containing >40 cells
+df_summary <- df_counted %>%
+  dplyr::group_by(major.class) %>%
+  dplyr::summarise(
+    # total_samples = how many distinct samples exist for that class
+    total_samples = n_distinct(sample.ID),
+    combos_over_40 = sum(n > 40),
+    .groups = "drop"
+  ) %>%
+  # 3) Keep only classes where combos_over_10 == total_samples
+  #    This ensures *every* sample has >10 cells for that class
+  dplyr::filter(total_samples == 40)
+
+unique(df_summary$major.class)->keep
+sub<- subset(merged_all, subset = major.class %in% keep)
+sub <- NormalizeData(sub)
+sub <- FindVariableFeatures(sub, nfeatures = 5000)
+sub <- ScaleData(sub)
+sub_res <- scDist(as.matrix(sub@assays$RNA@data[VariableFeatures(sub),]), sub@meta.data, 
+                                              fixed.effects = "brainR", d = 10, min.counts.per.cell = 20,
+              random.effects=c("sample.ID","orig.ident"),
+              clusters="major.class")
+sub_res$results
+```
+#Plot scDist distances between regions
+```{r}
+plot2 <- sub_res$results %>% 
+  janitor::clean_names() %>% 
+  rownames_to_column("brainR") %>% 
+  ggplot(aes(fct_reorder(brainR, dist), dist)) +
+  geom_point(size=3, color="grey") + # Adjust size and color
+  geom_errorbar(aes(ymin = x95_percent_ci_low, ymax =  x95_percent_ci_upper), width=0.2) + # Adjust error bar width
+  ggpubr::theme_pubr(base_size = 14, base_family = "Helvetica") + # Increase base font size and set font family
+  coord_flip() +
+  labs(x= "",y="Distance") + # Add or adjust labels
+  theme(axis.text.y = element_text(size=12),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()
+  )+
+  ylim(0, NA)+ # Set the y-axis to start at 0
+  custom_theme
+
+print(plot2)
+
+pdf(file= "/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Plots/scDIst_analysis_all_cells_all_groups.pdf", height = 3, width = 3.5)
+plot2
+dev.off()
+
+ggsave(plot = plot2, bg = "white", filename="/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Plots/scDIst_analysis_all_cells_all_groups.png",
+        height = 4, width = 3.5, units = "in", dpi = 400)
+```
