@@ -1,0 +1,482 @@
+---
+title: "Figure_2"
+output: html_document
+date: "2024-08-29"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Figure 2
+Load Libraries
+```{r}
+library(Seurat)
+library(qs)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(forcats)
+library(ggpubr)
+library(ggh4x)
+library(ggrepel)
+library(magrittr)
+library(DESeq2)
+library(edgeR)
+library(matrixStats)
+library(ggthemes)
+library(tidyverse)
+library(tidyplots)
+```
+Load Data
+```{r}
+data_dir <- "Data"
+output_dir <- "Output/DE_ALL"
+
+arc_dvc_non_labeled <- qread(file.path(data_dir, "Arc_Dvc_nonneuronal_dio_filtered_labeled.qs"))
+
+metadata <- arc_dvc_non_labeled@meta.data
+metadata$sub.class[metadata$sub.class == "Tanycytes_like"] <- "Tanycyte-like"
+metadata$sub.class[metadata$sub.class == "Endothelial_cells"] <- "Endothelial-cells"
+metadata$sub.class[metadata$sub.class == "Ependymal_cells"] <- "Ependymal-cells"
+arc_dvc_non_labeled@meta.data <- metadata
+```
+
+```{r}
+pal <- c("ARC" = "#faa32b", "DVC" = "#237194")
+
+custom_palette <- c(
+  "Astrocytes" = "#6E57A5",
+  "ARC/VMH-Astrocytes" = "#6E57A5",
+  "DVC-Astrocytes" = "#6E57A5",
+  "Endothelial-cells" = "#e49444",
+  "Ependymal-cells" = "#d1615d",
+  "Microglia" = "#85b6b2",
+  "Neuron" = "#84CFB9",
+  "Oligodendrocytes" = "#6a9f58",
+  "OPC" = "#e7ca60",
+  "Pericytes" = "#a87c9f",
+  "α1-Tanycytes" = "#f1a2a9",
+  "α2-Tanycytes" = "#962E2A",
+  "β1-Tanycytes" = "#E3867D",
+  "β2-Tanycytes" = "#CEE6F2",
+  "Tanycyte-like" = "#E3A6A1",
+  "VLMC" = "#967662"
+)
+```
+
+# Fig 2a Generate UMAP plot of Nonneuronal Cell from ARC/VMH and DVC
+```{r}
+umap.embed <- as.data.frame(arc_dvc_non_labeled@reductions$umap@cell.embeddings)
+umap.embed$sub.class <- arc_dvc_non_labeled$sub.class
+shuffled_umap.embed <- umap.embed[sample(nrow(umap.embed)), ]
+
+label <- shuffled_umap.embed %>%
+  group_by(sub.class) %>%
+  summarise(
+    x = median(UMAP_1),
+    y = median(UMAP_2),
+    .groups = "drop"
+  ) %>%
+  filter(sub.class != "Astrocytes")
+
+label <- rbind(
+  label,
+  data.frame(sub.class = "ARC/VMH-Astrocytes", x = -5, y = -8),
+  data.frame(sub.class = "DVC-Astrocytes", x = -5, y = 0)
+)
+
+label$y[label$sub.class == "OPC"] <- 12
+label$y[label$sub.class == "α2-Tanycytes"] <- 9
+label$y[label$sub.class == "VLMC"] <- 9.5
+label$x[label$sub.class == "α1-Tanycytes"] <- -8
+label$y[label$sub.class == "Oligodendrocytes"] <- -8.5
+label$x[label$sub.class == "DVC-Astrocytes"] <- -7
+
+umap_celltype_plot <- ggplot(shuffled_umap.embed, aes(UMAP_1, UMAP_2, color = sub.class)) +
+  geom_point(size = 0.4, alpha = 0.5) +
+  guides(
+    x = guide_axis_truncated(trunc_lower = unit(0, "npc"), trunc_upper = unit(2, "cm")),
+    y = guide_axis_truncated(trunc_lower = unit(0, "npc"), trunc_upper = unit(2, "cm"))
+  ) +
+  theme_pubr() +
+  theme(
+    axis.line = element_line(
+      arrow = arrow(type = "closed", length = unit(0.2, "cm")),
+      linewidth = 0.5
+    ),
+    panel.grid = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    legend.position = "top",
+    axis.title.x = element_text(size = 7, hjust = 0, vjust = 2),
+    axis.title.y = element_text(size = 7, hjust = 0, vjust = 0, angle = 90)
+  ) +
+  xlab("UMAP 1") +
+  ylab("UMAP 2") +
+  scale_color_manual(values = custom_palette) +
+  geom_text_repel(
+    data = label,
+    aes(label = sub.class, x = x, y = y, color = sub.class),
+    size = 4,
+    inherit.aes = FALSE
+  )
+
+umap_celltype_plot
+```
+
+# Fig. 2b: UMAP by treatment, saline-only samples
+```{r}
+arc_dvc_non_labeled_sev$diet
+arc_dvc_non_labeled_sev <- subset(arc_dvc_non_labeled, subset = treatment %in% "C")
+umap.embed <- as.data.frame(arc_dvc_non_labeled_sev@reductions$umap@cell.embeddings) #extract umap 
+umap.embed$diet <- arc_dvc_non_labeled_sev$diet #add sub.class to df for labels
+shuffled_umap.embed <- umap.embed[sample(nrow(umap.embed)), ] #shuffle data point so you group is not on top of the other
+
+label <- shuffled_umap.embed %>% 
+  dplyr::group_by(diet) %>% 
+  dplyr::summarize(x = median(UMAP_1), y = median(UMAP_2)) 
+
+pal<-c("C"= "#75BFAF","H"="#2B5B5B") 
+# Plot
+umap.plot <-ggplot(data = shuffled_umap.embed, mapping = aes(x = UMAP_1, y = UMAP_2, 
+                                                           colour = diet)) +
+  geom_point(size = 0.4, alpha = 0.5) +
+  guides(x = guide_axis_truncated(trunc_lower = unit(0, "npc"), trunc_upper = unit(0, "cm")),
+         y = guide_axis_truncated(trunc_lower = unit(0, "npc"), trunc_upper = unit(0, "cm"))) +
+  theme_pubr() +
+  theme(axis.line = element_line(arrow = arrow(type='closed',length = unit(0, "cm")), size = 0),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        panel.border = element_blank(), 
+        panel.background = element_blank(), 
+        #legend.position = "None",
+        axis.title.x = element_text(size=0, face="bold", hjust = 0, vjust = 2),
+        axis.title.y = element_text(size=0, face="bold", hjust = 0, vjust = 0, angle = 90),
+        axis.text = element_text(size=0, face="bold")) + 
+  xlab("UMAP 1") + ylab("UMAP 2") + 
+  scale_color_manual(values = pal)
+
+umap.plot
+```
+
+# Fig. 2b: UMAP by brain region
+```{r}
+umap.embed <- as.data.frame(arc_dvc_non_labeled@reductions$umap@cell.embeddings) #extract umap 
+umap.embed$brainR <- arc_dvc_non_labeled$brainR #add brain region to color points by
+shuffled_umap.embed <- umap.embed[sample(nrow(umap.embed)), ] #shuffle data point so you group is not on top of the other
+label <- data.frame(brainR = unique(arc_dvc_non_labeled$brainR))
+label <- shuffled_umap.embed %>% 
+  dplyr::group_by(brainR) %>% 
+  dplyr::summarize(x = median(UMAP_1), y = median(UMAP_2))
+
+umap.plot <- ggplot(data = shuffled_umap.embed, mapping = aes(x = UMAP_1, y = UMAP_2, 
+                                                              color = brainR)) +
+  geom_point(size = 0.4, alpha = 0.5) +
+  guides(x = element_blank(),
+         y = element_blank()) +
+  theme_pubr() +
+  theme(axis.line = element_blank(), 
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(), 
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        panel.border = element_blank(), 
+        panel.background = element_blank(), 
+        legend.position = "Top",
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text = element_text(size=7, face="plain")) + 
+  xlab("UMAP 1") + ylab("UMAP 2") + 
+  scale_color_manual(values = pal) #+
+  #geom_text_repel(aes(x = x, y = y, color = brainR), 
+                  size = 4, fontface = "plain", inherit.aes = FALSE)
+
+umap.plot
+```
+
+#Create Pseudobulk and run DESEQ2 with the reduced model
+```{r}
+voom_wrapper<- function(seurat_obj, 
+                         assay_name = "RNA", 
+                         feature_pattern_exclude = "^Gm|Rik$", 
+                         min_cells = 5, min_reps = 2,
+                         filter_column = NULL, 
+                         filter_value = NULL,
+                         pseudobulk_var = c("hash.mcl.ID"), 
+                         min_count_filter = 5,
+                         group_of_interest = NULL) {
+  
+  # Validate inputs
+  stopifnot("Seurat" %in% class(seurat_obj), assay_name %in% names(seurat_obj@assays))
+  
+  # Subset cells based on metadata column and filter features
+  cells_to_keep <- colnames(seurat_obj)[grepl(filter_value, seurat_obj[[filter_column]][,1])]
+  features_to_keep <- rownames(seurat_obj@assays[[assay_name]])[!grepl(feature_pattern_exclude, rownames(seurat_obj@assays[[assay_name]]))]
+  seurat_obj <- subset(seurat_obj, cells = cells_to_keep, features = features_to_keep)
+  
+  # Process grouping columns for pseudobulk
+  if(length(pseudobulk_var>1)) {
+    seurat_obj@meta.data %<>%  unite(., "pb_var", {{pseudobulk_var}}, remove = F)
+  } else {
+    seurat_obj@meta.data$pb_var <- seurat_obj@meta.data[{{pseudobulk_var}}]
+  }
+  
+  # Unify metadata group_of_interest
+  if(length(group_of_interest>1)) {
+    seurat_obj@meta.data %<>%  unite(., "group_of_interest", {{group_of_interest}}, remove = F)
+  } else {
+    seurat_obj@meta.data$group_of_interest <- seurat_obj@meta.data[{{group_of_interest}}]
+  }
+  
+  # Filter groups by cell count
+  pb_sizes <- table(seurat_obj$pb_var)
+  samples_keep <- names(pb_sizes[pb_sizes > min_cells])
+  seur_filtered_ncells <- subset(seurat_obj, subset = pb_var %in% samples_keep)
+  
+  # Create a table counting the number of unique animals in each group
+  samps_per_group <- table(seur_filtered_ncells$pb_var, seur_filtered_ncells$group_of_interest)
+  groups_keep <- colnames(samps_per_group)[apply(samps_per_group, 2, function(x) sum(x > 0)) >= min_reps]
+  seur_filtered_complete <- subset(seur_filtered_ncells, subset = group_of_interest %in% groups_keep)
+  
+  # Calculate pseudobulk matrix
+  pseudobulk_matrix <- create_pseudobulk_matrix(seur_filtered_complete, assay_name)
+  
+  # Create metadata for voom
+  metadata_for_voom <- distinct(seur_filtered_complete@meta.data, pb_var, .keep_all = T)
+  metadata_for_voom <- metadata_for_voom[match(colnames(pseudobulk_matrix),metadata_for_voom$pb_var),]
+  metadata_for_voom <- inner_join(metadata_for_voom, enframe(pb_sizes, name = "pb_var", value = "ncells") %>% mutate(ncells = as.numeric(ncells)), by = "pb_var")
+  
+  # Create a DGEList object
+  y <- edgeR::DGEList(counts = pseudobulk_matrix, group = metadata_for_voom$group_of_interest, samples = metadata_for_voom)
+  
+  # Filter the expressions
+  keep.exprs <- edgeR::filterByExpr(y, group = y$samples$group_of_interest, min.count = min_count_filter)
+  print(table(keep.exprs))
+  
+  # Subset the DGEList object based on filtered expressions
+  y <- y[keep.exprs,, keep.lib.sizes = FALSE]
+  
+  # Calculate normalization factors
+  y <- edgeR::calcNormFactors(y, method="TMM")
+
+  return(y)
+}
+
+create_pseudobulk_matrix <- function(seurat_obj, assay_name = "RNA") {
+  
+  counts <- Seurat::GetAssayData(
+    seurat_obj,
+    assay = assay_name,
+    layer = "counts"   # use slot = "counts" if older Seurat
+  )
+  
+  pb <- rowsum(
+    t(as.matrix(counts)),
+    group = seurat_obj$pb_var
+  )
+  
+  pb <- t(pb)
+  
+  return(pb)
+}
+
+```
+# Fig. 2c: Astrocyte PCA
+```{r}
+astrocyte_obj <- qread(file.path(data_dir, "arc_dvc_astrocytes.qs"))
+
+pb <- voom_wrapper(
+  astrocyte_obj,
+  assay_name = "RNA",
+  min_cells = 25,
+  filter_column = "sample.ID",
+  filter_value = "*",
+  pseudobulk_var = c("sample.ID", "sub.class"),
+  group_of_interest = "brainR"
+)
+
+dds <- DESeqDataSetFromMatrix(
+  countData = pb$counts,
+  colData = pb$samples,
+  design = ~ brainR
+)
+
+vsd <- vst(dds, blind = FALSE)
+
+rv <- rowVars(assay(vsd))
+select <- order(rv, decreasing = TRUE)[seq_len(min(500, length(rv)))]
+
+pca <- prcomp(t(assay(vsd)[select, ]))
+
+pcaData <- plotPCA(vsd, intgroup = "brainR", returnData = TRUE)
+percentVar <- attr(pcaData, "percentVar")
+
+pca_plot <- ggplot(pcaData, aes(PC1, PC2, color = brainR)) +
+  geom_point(size = 3) +
+  scale_color_manual(values = pal) +
+  xlab(paste0("PC1: ", round(percentVar[1] * 100), "% variance")) +
+  ylab(paste0("PC2: ", round(percentVar[2] * 100), "% variance")) +
+  theme_minimal()
+
+pca_plot
+```
+
+# Fig. 2d: PC1 gene loading scores
+```{r}
+top_genes_dvc_df <- data.frame(
+  Gene = names(sort(pca$rotation[, 1], decreasing = TRUE)[1:10]),
+  Value = sort(pca$rotation[, 1], decreasing = TRUE)[1:10],
+  Region = "DVC"
+)
+
+top_genes_arc_df <- data.frame(
+  Gene = names(sort(pca$rotation[, 1], decreasing = FALSE)[1:10]),
+  Value = sort(pca$rotation[, 1], decreasing = FALSE)[1:10],
+  Region = "ARC/VMH"
+)
+
+arc_dvc_pca_genes <- rbind(top_genes_arc_df, top_genes_dvc_df)
+
+geneloading_plot <- arc_dvc_pca_genes %>%
+  ggplot(aes(y = fct_reorder(Gene, Value), x = Value)) +
+  geom_col(fill = "white", color = "black") +
+  labs(y = "Feature genes", x = "Loading scores") +
+  ggthemes::theme_clean() +
+  theme(
+    plot.background = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  ) +
+  coord_flip()
+
+geneloading_plot
+```
+
+# Fig. 2f: Number of FDR-significant DE genes by non-neuronal cell type
+```{r}
+custom_theme <- function() {
+  theme_pubr() +
+    theme(
+      axis.text.y = element_text(size = 12),
+      axis.title = element_text(size = 6),
+      axis.text.x = element_text(size = 6, angle = 0, hjust = 1),
+      legend.position = "none",
+      title = element_text(size = 8),
+      plot.margin = unit(c(0, 0, 0.25, 0), "cm"),
+      plot.title = element_text(hjust = 0.5),
+      axis.line = element_line(colour = "black", linewidth = 0.3),
+      axis.ticks = element_line(colour = "black", linewidth = 0.3)
+    )
+}
+
+dvc_nonneuronal <- subset(arc_dvc_non_labeled, subset = brainR == "DVC")
+
+DEGs.ARC.Control <- readRDS(
+  file.path(output_dir, "DEGs_edgeR_ARC_nonneurons_diet_response_saline_group_finalwNA.rds")
+)
+
+DEGs.DVC.Control <- readRDS(
+  file.path(output_dir, "DEGs_edgeR_DVC_nonneurons_diet_response_saline_group_finalwNA.rds")
+)
+
+arc_celltype_counts <- table(arc_dvc_non_labeled$sub.class)
+arc_valid_celltypes <- names(arc_celltype_counts[arc_celltype_counts >= 25])
+
+DEGs.ARC.counts <- data.frame(
+  cell.type = arc_valid_celltypes,
+  n_DEG = NA_integer_
+)
+
+for (i in seq_len(nrow(DEGs.ARC.counts))) {
+  cell.type <- DEGs.ARC.counts$cell.type[i]
+  deg_table <- DEGs.ARC.Control[[cell.type]]
+  
+  if (is.data.frame(deg_table) && "FDR" %in% names(deg_table)) {
+    DEGs.ARC.counts$n_DEG[i] <- sum(deg_table$FDR < 0.05, na.rm = TRUE)
+  } else {
+    DEGs.ARC.counts$n_DEG[i] <- 0
+  }
+}
+
+dvc_celltype_counts <- table(dvc_nonneuronal$sub.class)
+dvc_valid_celltypes <- names(dvc_celltype_counts[dvc_celltype_counts >= 25])
+
+DEGs.DVC.counts <- data.frame(
+  cell.type = dvc_valid_celltypes,
+  n_DEG = NA_integer_
+)
+
+for (i in seq_len(nrow(DEGs.DVC.counts))) {
+  cell.type <- DEGs.DVC.counts$cell.type[i]
+  deg_table <- DEGs.DVC.Control[[cell.type]]
+  
+  if (is.data.frame(deg_table) && "FDR" %in% names(deg_table)) {
+    DEGs.DVC.counts$n_DEG[i] <- sum(deg_table$FDR < 0.05, na.rm = TRUE)
+  } else {
+    DEGs.DVC.counts$n_DEG[i] <- 0
+  }
+}
+
+DEGs.ARC.counts$comparison <- "ARC"
+DEGs.DVC.counts$comparison <- "DVC"
+
+DEGs <- rbind(DEGs.ARC.counts, DEGs.DVC.counts)
+
+fig_2f <- DEGs %>%
+  add_row(
+    cell.type = c("α1-Tanycytes", "α2-Tanycytes", "β1-Tanycytes", "β2-Tanycytes"),
+    comparison = rep("DVC", 4),
+    n_DEG = rep(0, 4)
+  ) %>%
+  mutate(n_DEG = ifelse(is.na(n_DEG), 0, n_DEG)) %>%
+  ggplot(aes(
+    x = n_DEG,
+    y = fct_reorder(cell.type, n_DEG),
+    fill = factor(comparison, levels = c("DVC", "ARC"))
+  )) +
+  geom_col(position = position_dodge(), color = "black") +
+  scale_fill_manual(values = pal) +
+  theme_pubr() +
+  custom_theme() +
+  xlab("# of differentially expressed genes") +
+  ylab(NULL) +
+  scale_x_continuous(position = "top", limits = c(0, 80)) +
+  theme(
+    legend.position = "top",
+    legend.direction = "horizontal"
+  ) +
+  guides(fill = guide_legend(nrow = 1))
+
+fig_2f
+```
+
+# Fig. 2g: Volcano plot DE genes ARC/VMH astrocytes
+```{r}
+DEGs.nonneurons <-
+    readRDS(file.path(data_dir, "DEGs_edgeR_ARC_nonneurons_diet_response_saline_group_final_no_NA.rds")
+
+DEGs.nonneurons$Astrocytes %>% rownames_to_column(var = "gene") %>%  mutate(
+    neg_log10_padj = -log10(PValue),
+    direction = if_else(logFC > 0, "up", "down", NA),
+    candidate = abs(logFC) >= 0.4 & FDR < 0.05
+    ) ->df
+
+df |> 
+  tidyplot(x = logFC, y = neg_log10_padj) |> 
+  add_data_points(data = filter_rows(!candidate),
+                  color = "lightgrey", rasterize = TRUE) |> 
+  add_data_points(data = filter_rows(candidate, direction == "up"),
+                  color = "#FF7777", alpha = 0.5) |> 
+  add_data_points(data = filter_rows(candidate, direction == "down"),
+                  color = "#7DA8E6", alpha = 0.5)  |> 
+  add_data_labels_repel(data = min_rows(FDR, 6, by = direction), label = gene,
+                        color = "#000000", min.segment.length = 0, background = TRUE) |> 
+  adjust_x_axis_title("$Log[2]~fold-change$") |> 
+  adjust_y_axis_title("$-Log[10]~italic(P)~adjusted$")-> plot
+```
