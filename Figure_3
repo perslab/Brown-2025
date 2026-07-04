@@ -1,0 +1,361 @@
+---
+title: "Figure_3"
+output: html_document
+date: "2026-07-04"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Figure 3
+
+```{r}
+library(Seurat)
+library(qs)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(tibble)
+library(forcats)
+library(ggpubr)
+library(ggrepel)
+library(patchwork)
+library(tidyverse)
+library(tidyplots)
+```
+
+```{r}
+# Use relative paths so the script can be shared/re-run more easily.
+data_dir <- "data"
+output_dir <- "Output"
+```
+
+```{r}
+pal <- c("ARC" = "#faa32b", "DVC" = "#237194")
+```
+
+## Fig. 3a: DVC neuron UMAP
+
+```{r}
+dvc_neurons <- readRDS(
+  file.path(data_dir, "merged_dio_DVC_neuron_filt_new_labels_removed_clust.rds")
+)
+
+dvc_neurons$predicted.celltype.m <- gsub(
+  "([^_]*)_(.*)_(.*)",
+  "\\1\\2.\\3",
+  dvc_neurons$predicted.celltype
+)
+
+celltype_counts <- table(dvc_neurons$predicted.celltype.m, dvc_neurons$group)
+
+valid_celltypes <- names(
+  which(apply(celltype_counts, 1, function(x) all(x >= 25)))
+)
+
+umap_dvc <- as.data.frame(dvc_neurons@reductions$umap@cell.embeddings) %>%
+  mutate(predicted.celltype.m = dvc_neurons$predicted.celltype.m)
+
+label_dvc <- umap_dvc %>%
+  group_by(predicted.celltype.m) %>%
+  summarise(
+    x = median(UMAP_1),
+    y = median(UMAP_2),
+    .groups = "drop"
+  ) %>%
+  filter(predicted.celltype.m %in% valid_celltypes)
+
+dvc_cell_type_colors <- c(
+  "Chat0.0" = "#984ea3",
+  "GABA0.0" = "#a6cee3",
+  "GABA0.1" = "#1f78b4",
+  "GABA0.2" = "#b2df8a",
+  "GABA1.0" = "#fdbf6f",
+  "GABA1.1" = "#fb9a99",
+  "GABA2.0" = "#ff7f00",
+  "GABA2.1" = "#cab2d6",
+  "GABA2.2" = "#ffed6f",
+  "GABA3.0" = "#ffcc00",
+  "GABA4.0" = "#fccde5",
+  "GABA4.1" = "#a65628",
+  "GABA5.0" = "#ccebc5",
+  "GABA5.1" = "#bc80bd",
+  "GABA5.2" = "#8dd3c7",
+  "GABA6.1" = "#4daf4a",
+  "GABA7.0" = "#8dd3c7",
+  "Glu0.0" = "#bebada",
+  "Glu0.1" = "#fb8072",
+  "Glu0.2" = "#80b1d3",
+  "Glu0.3" = "#fdb462",
+  "Glu1.0" = "#b3de69",
+  "Glu1.1" = "#e78ac3",
+  "Glu2.0" = "#fccde5",
+  "Glu2.1" = "#80b1d3",
+  "Glu2.2" = "#ff4500",
+  "Glu3.1" = "#bc80bd",
+  "Glu4.0" = "#ccebc5",
+  "Glu7.0" = "#ffed6f",
+  "Glu7.1" = "#b3cde3",
+  "Glu9.0" = "#4daf4a",
+  "Glu10.0" = "#decbe4"
+)
+
+fig_3a_dvc_umap <- ggplot(
+  umap_dvc,
+  aes(UMAP_1, UMAP_2, colour = predicted.celltype.m)
+) +
+  geom_point(size = 0.4, alpha = 0.5) +
+  theme_pubr() +
+  theme(
+    axis.line = element_line(
+      arrow = arrow(type = "closed", length = unit(0.2, "cm")),
+      linewidth = 0.5
+    ),
+    panel.grid = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    legend.position = "none",
+    axis.title.x = element_text(size = 12, hjust = 0, vjust = 2),
+    axis.title.y = element_text(size = 12, hjust = 0, vjust = 0, angle = 90)
+  ) +
+  xlab("UMAP 1") +
+  ylab("UMAP 2") +
+  scale_color_manual(values = dvc_cell_type_colors) +
+  geom_text_repel(
+    data = label_dvc,
+    aes(label = predicted.celltype.m, x = x, y = y),
+    size = 3,
+    fontface = "bold",
+    inherit.aes = FALSE
+  )
+
+fig_3a_dvc_umap
+```
+
+## Fig. 3a: ARC/VMH neuron UMAP
+
+```{r}
+arc_neurons <- qs::qread(
+  file.path(data_dir, "Vmh_arc_neurons_filt_processed_labeled_filtered_cellex.qs")
+)
+
+arc_neurons$labels <- gsub("_", "/", arc_neurons$labels_2)
+
+celltype_counts <- table(arc_neurons$labels, arc_neurons$group)
+
+valid_celltypes <- names(
+  which(apply(celltype_counts, 1, function(x) all(x >= 25)))
+)
+
+umap_arc <- as.data.frame(arc_neurons@reductions$umap@cell.embeddings) %>%
+  mutate(labels = arc_neurons$labels)
+
+label_arc <- umap_arc %>%
+  group_by(labels) %>%
+  summarise(
+    x = median(UMAP_1),
+    y = median(UMAP_2),
+    .groups = "drop"
+  ) %>%
+  filter(labels %in% valid_celltypes)
+
+arc_cell_type_colors <- c(
+  "Agrp" = "#E41A1C",
+  "Arx/Nr5a2" = "#377EB8",
+  "Dlk1/1" = "#4DAF4A",
+  "Dlk1/2" = "#FF7F00",
+  "Esr1/1" = "#984EA3",
+  "Esr1/2" = "#A65628",
+  "Esr1/3" = "#F781BF",
+  "Fezf1/2" = "#999999",
+  "Fezf1/3" = "#66C2A5",
+  "Foxp2/3" = "#FC8D62",
+  "Ghrh" = "#8DA0CB",
+  "Gpr50/Tac2" = "#E78AC3",
+  "Hdc" = "#A6D854",
+  "Htr3b" = "#FFD92F",
+  "Irx5/Lmx1a" = "#E5C494",
+  "Kiss1/Tac2" = "#B3B3B3",
+  "Lepr/4" = "#66C2A5",
+  "Lepr/5" = "#FC8D62",
+  "Lepr/6" = "#8DA0CB",
+  "Lepr/7" = "#E78AC3",
+  "Lepr/8" = "#A6D854",
+  "Met/Prlh" = "#FFD92F",
+  "Nfib/1" = "#E5C494",
+  "Nfib/2" = "#B3B3B3",
+  "Nfix/Nfib" = "#B3E2CD",
+  "Nfix/Nfib/Lhx6" = "#FDCDAC",
+  "Npsr1/Epha3" = "#CBD5E8",
+  "Pomc/Anxa2" = "#F4CAE4",
+  "Pomc/Glipr1" = "#E6F5C9",
+  "Pomc/Ttr" = "#FFF2AE",
+  "Pou6f2/Prkcq/Whrn" = "#F1E2CC",
+  "Ppp1r17" = "#CCCCCC",
+  "Ppp1r17/Ltbp1" = "#E41A1C",
+  "Ppp1r17/Tafa4" = "#377EB8",
+  "Reln/Lef1" = "#4DAF4A",
+  "Sim1/Ebf3" = "#FF7F00",
+  "Slc17a6/Trhr" = "#984EA3",
+  "Sst/Pthlh" = "#A65628",
+  "Sst/Unc13c" = "#F781BF",
+  "Tbx19/Pirt" = "#999999",
+  "Th/Nfib" = "#66C2A5",
+  "Th/Slc6a3" = "#FC8D62",
+  "Tmem215/Greb1" = "#8DA0CB",
+  "Trh/Cxcl12" = "#E78AC3",
+  "Trh/Lef1" = "#A6D854",
+  "unassigned/2" = "#FFD92F"
+)
+
+fig_3a_arc_umap <- ggplot(
+  umap_arc,
+  aes(UMAP_1, UMAP_2, colour = labels)
+) +
+  geom_point(size = 0.4, alpha = 0.5) +
+  theme_pubr() +
+  theme(
+    axis.line = element_line(
+      arrow = arrow(type = "closed", length = unit(0.2, "cm")),
+      linewidth = 0.5
+    ),
+    panel.grid = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    legend.position = "none",
+    axis.title.x = element_text(size = 12, hjust = 0, vjust = 2),
+    axis.title.y = element_text(size = 12, hjust = 0, vjust = 0, angle = 90)
+  ) +
+  xlab("UMAP 1") +
+  ylab("UMAP 2") +
+  scale_color_manual(values = arc_cell_type_colors) +
+  geom_text_repel(
+    data = label_arc,
+    aes(label = labels, x = x, y = y),
+    size = 3,
+    fontface = "bold",
+    inherit.aes = FALSE
+  )
+
+fig_3a_arc_umap
+```
+
+## Fig. 3b: DE gene counts and log2 fold-change dot plot
+
+```{r}
+DE_data <- readRDS(
+  file.path(output_dir, "Combine_arc_dvc", "new_Con_IV_diet_response_arc_dvc_neurons.rds")
+)
+
+custom_theme <- function() {
+  theme_pubr() +
+    theme(
+      axis.text.y = element_text(size = 8),
+      axis.title = element_text(size = 8),
+      axis.text.x = element_text(size = 6, angle = 0, hjust = 1),
+      legend.position = "none",
+      title = element_text(size = 8),
+      plot.margin = unit(c(0, 0, 0.25, 0), "cm"),
+      plot.title = element_text(hjust = 0.5),
+      axis.line = element_line(colour = "black", linewidth = 0.3),
+      axis.ticks = element_line(colour = "black", linewidth = 0.3)
+    )
+}
+
+deg_count_plot <- ggplot(
+  DE_data,
+  aes(x = Total, y = fct_reorder(celltype, Total), fill = brainR)
+) +
+  geom_col(position = position_dodge(), width = 0.5, linewidth = 0.3) +
+  scale_fill_manual(values = pal) +
+  theme_pubr() +
+  custom_theme() +
+  ylab(NULL) +
+  xlab("Number of differentially expressed genes") +
+  scale_x_continuous(breaks = seq(0, 60, 10), position = "top")
+
+logfc_dot_plot <- ggplot(
+  DE_data,
+  aes(x = logFC, y = fct_reorder(celltype, Total), colour = brainR)
+) +
+  geom_point(alpha = 0.5, size = 2) +
+  scale_color_manual(values = pal) +
+  labs(
+    x = expression(Log[2] ~ "fold-change"),
+    y = "Neuron populations"
+  ) +
+  scale_x_continuous(position = "top") +
+  custom_theme()
+
+fig_3b <- logfc_dot_plot +
+  plot_spacer() +
+  (deg_count_plot + theme(axis.text.y = element_blank())) +
+  plot_layout(widths = c(1.75, 0.05, 1.2))
+
+fig_3b
+```
+
+## Fig. 3c: Volcano plots
+
+```{r}
+DEGs.neurons.sal <- readRDS(
+  file.path(output_dir, "DE_ALL", "DEGs_edgeR_ARCC_neurons_Controltreatment_diet_response_final_no_NA_m.rds")
+)
+
+make_volcano <- function(de_list, celltype_name, label_n = 6) {
+
+  de_list[[celltype_name]] %>%
+    rownames_to_column(var = "gene") %>%
+    mutate(
+      neg_log10_p = -log10(PValue),
+      direction = case_when(
+        logFC > 0 ~ "up",
+        logFC < 0 ~ "down",
+        TRUE ~ NA_character_
+      ),
+      candidate = abs(logFC) >= 0.4 & FDR < 0.05
+    ) -> df
+
+  df |>
+    tidyplot(x = logFC, y = neg_log10_p) |>
+    add_data_points(
+      data = filter_rows(!candidate),
+      color = "lightgrey",
+      rasterize = TRUE
+    ) |>
+    add_data_points(
+      data = filter_rows(candidate, direction == "up"),
+      color = "#FF7777",
+      alpha = 0.5
+    ) |>
+    add_data_points(
+      data = filter_rows(candidate, direction == "down"),
+      color = "#7DA8E6",
+      alpha = 0.5
+    ) |>
+    add_data_labels_repel(
+      data = min_rows(FDR, label_n, by = direction),
+      label = gene,
+      color = "#000000",
+      min.segment.length = 0,
+      background = TRUE
+    ) |>
+    adjust_x_axis_title("$Log[2]~fold-change$") |>
+    adjust_y_axis_title("$-Log[10]~italic(P)$")
+}
+
+volcano_Th_Slc6a3 <- make_volcano(DEGs.neurons.sal, "Th_Slc6a3")
+volcano_Agrp <- make_volcano(DEGs.neurons.sal, "Agrp")
+volcano_Ghrh <- make_volcano(DEGs.neurons.sal, "Ghrh")
+volcano_Trh_Cxcl12 <- make_volcano(DEGs.neurons.sal, "Trh_Cxcl12")
+
+volcano_Th_Slc6a3
+volcano_Agrp
+volcano_Ghrh
+volcano_Trh_Cxcl12
+```
