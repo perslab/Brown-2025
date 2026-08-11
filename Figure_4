@@ -1,0 +1,439 @@
+---
+title: "Figure_4"
+output: html_document
+date: "2026-07-09"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load Data
+```{r}
+arc_dvc_non_labeled <- qread("/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Data/Arc_Dvc_nonneuronal_dio_filtered_labeled.qs")
+dvc_noneuornal<-subset(arc_dvc_non_labeled, subset = brainR == "DVC")
+
+pal<-c("ARC"= "#faa32b","DVC"="#237194") ## Current colors
+```
+
+# Plot DE genes GLucose Response on Control Diet ARC/VMH and DVC
+```{r}
+# Load acute DE genes glucose ressponse
+DEGs.ARC.Control <-
+  readRDS("/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Output/DE_ALL/DEGs_edgeR_ARC_nonneurons_Controldiet_glucoseresponse_final_wNA.rds")
+DEGs.DVC.Control <-
+  readRDS("/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Output/DE_ALL/DEGs_edgeR_DVC_nonneurons_Controldiet_glucoseresponse_final_wNA.rds")
+
+```
+
+```{r}
+celltype_counts <- table(arc_dvc_non_labeled$sub.class)
+
+valid_celltypes <- names(celltype_counts[celltype_counts >= 25])
+
+
+DEGs.control <- data.frame(matrix(NA, nrow = length(valid_celltypes), ncol = 2))
+colnames(DEGs.control) <- c("cell.type", "control")
+DEGs.control$cell.type<- valid_celltypes
+
+
+for (i in 1:nrow(DEGs.control)) {
+  
+  cell.type <- DEGs.control$cell.type[i]
+  
+  # Check if cell.type is NA
+  if (is.na(cell.type)) {
+    DEGs.control$control[i] <- 0
+  }
+  else {
+    neuron_control_data <- DEGs.ARC.Control[[cell.type]]
+
+    # Check if neuron_control_data is a dataframe and contains the padj column
+    if (is.data.frame(neuron_control_data) && "FDR" %in% names(neuron_control_data)) {
+      DEGs.control$control[i] <- length(which(neuron_control_data$FDR < 0.05))
+    } else {
+      DEGs.control$control[i] <- NA
+    }
+  }
+}
+
+celltype_counts <- table(dvc_noneuornal$sub.class)
+
+valid_celltypes <- names(celltype_counts[celltype_counts >= 25])
+
+DEGs.HF <- data.frame(matrix(NA, nrow = length(valid_celltypes), ncol = 2))
+colnames(DEGs.HF) <- c("cell.type", "highfat")
+DEGs.HF$cell.type<- valid_celltypes
+
+
+for (i in 1:nrow(DEGs.HF)) {
+  
+  cell.type <- DEGs.HF$cell.type[i]
+  
+  # Check if cell.type is NA
+  if (is.na(cell.type)) {
+    DEGs.HF$highfat[i] <- 0
+  }
+  else {
+    neuron_control_data <- DEGs.DVC.Control[[cell.type]]
+
+    # Check if neuron_control_data is a dataframe and contains the padj column
+    if (is.data.frame(neuron_control_data) && "FDR" %in% names(neuron_control_data)) {
+      DEGs.HF$highfat[i] <- length(which(neuron_control_data$FDR < 0.05))
+    } else {
+      DEGs.HF$highfat[i] <- NA
+    }
+  }
+}
+
+
+DEGs.control$comparison <- "ARC"
+DEGs.HF$comparison <- "DVC"
+```
+
+## Fig 4 b
+
+```{r}
+print(names(DEGs.control))
+print(names(DEGs.HF))
+# Rename the second column of DEGs.HF to "control"
+names(DEGs.HF)[2] <- "control"
+
+# Plot 
+DEGs <- rbind(DEGs.control, DEGs.HF)
+
+DEGs %>%
+  pivot_longer(c(-cell.type, -comparison)) %>%
+  add_row(cell.type = c("α1-Tanycytes", "α2-Tanycytes", "β1-Tanycytes", "β2-Tanycytes"), comparison = rep("DVC", 4), value = rep(0, 4)) %>%
+  dplyr::select(-name) %>%
+  mutate(tot_deg = ifelse(is.na(value), 0, value)) %>%
+  ggplot() +
+  aes(x = tot_deg, y = fct_reorder(cell.type, tot_deg), fill = factor(comparison, levels = c("DVC", "ARC")), color = factor(comparison, levels = c("DVC", "ARC"))) +
+  geom_col(position = position_dodge(), color = "black") +
+  scale_fill_manual(values = pal) +  
+  theme_pubr() +
+  custom_theme() +
+  xlab("# of Differentially Expressed Genes") + 
+  ylab(NULL) +
+  scale_x_continuous(position = "top", limits = c(0, 80)) +
+  theme(legend.position = "top", legend.direction = "horizontal") +
+  guides(fill = guide_legend(nrow = 1), color = guide_legend(nrow = 1)) -> fig.4d
+
+
+
+pdf(file= "/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Plots/Fig4d_plot_DEnumber_Arc_Dvc_nonneurons_glucose_response_control_diet.pdf", height = 5, width = 3)
+fig.4d
+dev.off()
+
+ggsave(plot = fig.4d, filename = "/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Plots/Fig4d_plot_DEnumber_Arc_Dvc_nonneurons_glucose_response_control_diet.png",
+       height = 4.5, width = 3, units = "in", dpi = 400)
+```
+
+
+```{r}
+set_base_url("https://biit.cs.ut.ee/gprofiler_archive3/e111_eg58_p18")
+```
+
+## Paths
+
+```{r paths}
+base_path <- "/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024"
+
+data_path <- file.path(base_path, "Data")
+de_path <- file.path(base_path, "Output", "DE_ALL")
+output_path <- file.path(base_path, "Output")
+plot_path <- file.path(base_path, "Plots")
+```
+
+## Load data
+
+```{r load-data}
+arc_dvc <- qs::qread(
+  file.path(data_path, "Arc_Dvc_nonneuronal_dio_filtered_labeled.qs")
+)
+
+arc_de <- readRDS(
+  file.path(de_path, "DEGs_edgeR_ARC_nonneurons_Controldiet_glucoseresponse_final_wNA.rds")
+)
+
+dvc_de <- readRDS(
+  file.path(de_path, "DEGs_edgeR_DVC_nonneurons_Controldiet_glucoseresponse_final_wNA.rds")
+)
+
+arc_de <- arc_de[!is.na(arc_de)]
+dvc_de <- dvc_de[!is.na(dvc_de)]
+```
+
+## Helper functions
+
+```{r functions}
+make_ranked_list <- function(de_df) {
+
+  de_df %>%
+    rownames_to_column("Gene") %>%
+    filter(!is.na(logFC), !is.na(PValue)) %>%
+    mutate(
+      score = if_else(
+        logFC > 0,
+        -log10(PValue),
+        -log10(PValue) * -1
+      )
+    ) %>%
+    arrange(desc(score)) %>%
+    dplyr::select(Gene, score)
+}
+
+run_rrho_for_celltype <- function(celltype, arc_de, dvc_de) {
+
+  arc_rank <- make_ranked_list(arc_de[[celltype]])
+  dvc_rank <- make_ranked_list(dvc_de[[celltype]])
+
+  common_genes <- intersect(arc_rank$Gene, dvc_rank$Gene)
+
+  arc_rank <- arc_rank %>% filter(Gene %in% common_genes)
+  dvc_rank <- dvc_rank %>% filter(Gene %in% common_genes)
+
+  RRHO2_initialize(
+    dvc_rank,
+    arc_rank,
+    labels = c("DVC glucose response", "ARC/VMH glucose response"),
+    log10.ind = TRUE
+  )
+}
+
+run_gost_clean <- function(
+    genes,
+    background_genes,
+    celltype,
+    direction,
+    max_term_size = 500
+) {
+
+  if (length(genes) < 3) {
+    return(tibble())
+  }
+
+  gost_out <- gost(
+    query = genes,
+    organism = "mmusculus",
+    custom_bg = background_genes,
+    ordered_query = FALSE,
+    correction_method = "fdr",
+    exclude_iea = TRUE,
+    sources = c("GO:BP", "GO:MF", "GO:CC"),
+    evcodes = FALSE
+  )
+
+  if (is.null(gost_out$result)) {
+    return(tibble())
+  }
+
+  gost_out$result %>%
+    dplyr::select(
+      term_name,
+      term_size,
+      source,
+      p_value,
+      intersection_size,
+      term_id
+    ) %>%
+    filter(term_size <= max_term_size) %>%
+    arrange(p_value) %>%
+    mutate(
+      celltype = celltype,
+      direction = direction,
+      group = paste(celltype, direction, sep = "_"),
+      neg_log10_p = -log10(p_value)
+    )
+}
+
+get_background_genes <- function(seurat_obj, celltype) {
+  cell_obj <- subset(seurat_obj, subset = sub.class == celltype)
+  rownames(cell_obj[["RNA"]])
+}
+
+get_rrho_go_for_celltype <- function(celltype, arc_de, dvc_de, seurat_obj) {
+
+  rrho_obj <- run_rrho_for_celltype(
+    celltype = celltype,
+    arc_de = arc_de,
+    dvc_de = dvc_de
+  )
+
+  background_genes <- get_background_genes(seurat_obj, celltype)
+
+  go_up <- run_gost_clean(
+    genes = rrho_obj$genelist_uu$gene_list_overlap_uu,
+    background_genes = background_genes,
+    celltype = celltype,
+    direction = "Co-up"
+  )
+
+  go_down <- run_gost_clean(
+    genes = rrho_obj$genelist_dd$gene_list_overlap_dd,
+    background_genes = background_genes,
+    celltype = celltype,
+    direction = "Co-down"
+  )
+
+  list(
+    rrho = rrho_obj,
+    go = bind_rows(go_up, go_down)
+  )
+}
+
+make_rrho_go_heatmap_data <- function(
+    go_all,
+    top_n_terms = 5,
+    group_order = c(
+      "Astrocytes_Co-up",
+      "Oligodendrocytes_Co-up",
+      "Astrocytes_Co-down",
+      "Oligodendrocytes_Co-down"
+    )
+) {
+
+  go_all <- go_all %>%
+    as.data.frame() %>%
+    dplyr::mutate(
+      term_name = as.character(term_name),
+      group = as.character(group),
+      p_value = as.numeric(p_value),
+      neg_log10_p = as.numeric(neg_log10_p)
+    )
+
+  top_terms <- go_all %>%
+    dplyr::group_by(group) %>%
+    dplyr::arrange(p_value, .by_group = TRUE) %>%
+    dplyr::slice_head(n = top_n_terms) %>%
+    dplyr::ungroup() %>%
+    dplyr::pull(term_name) %>%
+    unique()
+
+  complete_grid <- tidyr::expand_grid(
+    group = group_order,
+    term_name = top_terms
+  )
+
+  heatmap_data <- complete_grid %>%
+    dplyr::left_join(
+      go_all %>%
+        dplyr::select(group, term_name, source, p_value, neg_log10_p, celltype, direction),
+      by = c("group", "term_name")
+    ) %>%
+    dplyr::mutate(
+      group = factor(
+        group,
+        levels = group_order,
+        labels = c(
+          "Astrocytes\nCo-up",
+          "Oligodendrocytes\nCo-up",
+          "Astrocytes\nCo-down",
+          "Oligodendrocytes\nCo-down"
+        )
+      ),
+      term_label = stringr::str_to_title(stringr::str_wrap(term_name, 22))
+    )
+
+  term_order <- go_all %>%
+    dplyr::filter(term_name %in% top_terms) %>%
+    dplyr::mutate(group = factor(group, levels = group_order)) %>%
+    dplyr::arrange(group, p_value) %>%
+    dplyr::distinct(term_name, .keep_all = TRUE) %>%
+    dplyr::mutate(term_label = stringr::str_to_title(stringr::str_wrap(term_name, 22))) %>%
+    dplyr::pull(term_label)
+
+  heatmap_data %>%
+    dplyr::mutate(term_label = factor(term_label, levels = rev(unique(term_order))))
+}
+
+plot_rrho_go_heatmap <- function(
+    heatmap_data,
+    max_fill = 7,
+    x_angle = 45
+) {
+
+  ggplot(
+    heatmap_data,
+    aes(x = group, y = term_label, fill = neg_log10_p)
+  ) +
+    geom_tile(color = "white", linewidth = 0.5) +
+    scale_fill_gradient(
+      low = "white",
+      high = "#8B1A1A",
+      na.value = "white",
+      limits = c(0, max_fill),
+      oob = scales::squish,
+      name = expression(-log[10](italic(P)))
+    ) +
+    theme_classic(base_size = 10) +
+    theme(
+      axis.title = element_blank(),
+      axis.text.x = element_text(angle = x_angle, hjust = 1, vjust = 1),
+      axis.text.y = element_text(size = 8),
+      axis.line = element_blank(),
+      axis.ticks = element_blank(),
+      legend.title = element_text(size = 10),
+      legend.text = element_text(size = 8),
+      panel.border = element_rect(color = "black", fill = NA, linewidth = 0.4)
+    )
+}
+```
+
+## Run RRHO and GO enrichment
+
+```{r run-analysis}
+astro_results <- get_rrho_go_for_celltype(
+  celltype = "Astrocytes",
+  arc_de = arc_de,
+  dvc_de = dvc_de,
+  seurat_obj = arc_dvc
+)
+
+oligo_results <- get_rrho_go_for_celltype(
+  celltype = "Oligodendrocytes",
+  arc_de = arc_de,
+  dvc_de = dvc_de,
+  seurat_obj = arc_dvc
+)
+
+go_all <- bind_rows(
+  astro_results$go,
+  oligo_results$go
+)
+```
+
+## RRHO heatmaps Fig 4 d and e
+
+```{r rrho-heatmaps}
+RRHO2_heatmap(astro_results$rrho, col = scico(1000, palette = "batlow"))
+RRHO2_heatmap(oligo_results$rrho, col = scico(1000, palette = "batlow"))
+```
+
+## GO heatmap Fig f
+
+```{r go-heatmap, fig.height=8.5, fig.width=4.5}
+class(go_all)
+
+heatmap_data <- make_rrho_go_heatmap_data(
+  go_all = go_all,
+  top_n_terms = 5
+)
+
+go_heatmap <- plot_rrho_go_heatmap(
+  heatmap_data = heatmap_data,
+  max_fill = 7,
+  x_angle = 45
+)
+
+go_heatmap 
+
+heatmap_data <- heatmap_data %>%
++ drop_na()
+
+heatmap_data <- heatmap_data %>%
+  filter(!is.na(p_value))
+
+write_xlsx(heatmap_data, "/projects/perslab/people/nvg559/glucose_project_directory/data/processed/fig4f.xlsx")
+```
+
