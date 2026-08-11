@@ -1,0 +1,48 @@
+---
+title: "Figure_S6"
+output: html_document
+date: "2026-07-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(tidyplots)
+
+DEGs.neurons.sal <-
+    readRDS("/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Output/DE_noNA/DEGs_edgeR_ARC_VMH_neurons_Controldiet_glucoseresponse_final_no_NA.rds")
+
+DEGs.neurons.sal$Ghrh %>% rownames_to_column(var = "gene") %>%  mutate(
+    neg_log10_padj = -log10(FDR),
+    direction = if_else(logFC > 0, "up", "down", NA),
+    candidate = abs(logFC) >= 0.3 & FDR < 0.05
+    ) ->df
+
+df |> 
+  tidyplot(x = logFC, y = neg_log10_padj) |> 
+  add_data_points(data = filter_rows(!candidate),
+                  color = "lightgrey", rasterize = TRUE) |> 
+  add_data_points(data = filter_rows(candidate, direction == "up"),
+                  color = "#FF7777", alpha = 0.5) |> 
+  add_data_points(data = filter_rows(candidate, direction == "down"),
+                  color = "#7DA8E6", alpha = 0.5) |> 
+  #add_reference_lines(x = c(-.5, .5), y = -log10(0.05)) |> 
+  add_data_labels_repel(data = min_rows(FDR, 7, by = direction), label = gene,
+                        color = "#000000", min.segment.length = 0, background = TRUE) |> 
+  adjust_x_axis_title("$Log[2]~fold-change$") |> 
+  adjust_y_axis_title("$-Log[10]~italic(P)~adjusted$")|>
+  adjust_title("Ghrh Neurons")->plot
+
+write.xlsx(
+   df,
+   file = "/projects/perslab/people/nvg559/glucose_project_directory/data/processed/Ghrh_neurons_glucose_response_control_diet.xlsx",
+  overwrite = TRUE
+ )
+
+pdf(file= "/projects/perslab/people/nvg559/glucose_project_directory/Ghrh_neuorns_DE_plot.pdf", height = 5, width = 3)
+plot
+dev.off()
+```
