@@ -1,0 +1,147 @@
+---
+title: "Sup_Figure_1"
+output: html_document
+date: "2024-08-01"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+library(dplyr)
+
+data_summary <- function(data, varname, groupnames) {
+  summary_func <- function(x, col) {
+    n <- sum(!is.na(x[[col]]))  # Number of non-NA observations
+    sd_value <- sd(x[[col]], na.rm = TRUE)  # Standard Deviation
+
+    c(mean = mean(x[[col]], na.rm = TRUE),
+      sd = sd_value,
+      sem = sd_value / sqrt(n))  # Standard Error of the Mean
+  }
+
+  data_sum <- data %>%
+    group_by(across(all_of(groupnames))) %>%
+    summarise(across(all_of(varname), list(mean = ~mean(.x, na.rm = TRUE),
+                                           sd = ~sd(.x, na.rm = TRUE),
+                                           sem = ~sd(.x, na.rm = TRUE) / sqrt(sum(!is.na(.x))))),
+              .groups = 'drop') %>%
+    dplyr::rename(!!varname := paste0(varname, "_mean"))
+
+  return(data_sum)
+}
+```
+
+# Define a custom theme
+```{r}
+custom_theme <- theme(
+  text = element_text(size = 12),
+  axis.title = element_text(size = 12),
+  axis.text = element_text(size = 12),
+  legend.title = element_blank(),
+  legend.position = "none",
+  panel.background = element_blank(),  # Remove panel background
+  panel.grid.major = element_blank(),  # Remove major grid lines
+  panel.grid.minor = element_blank(),  # Remove minor grid lines
+  axis.line.y = element_line(color = "black", size = 0.5),  # Add y-axis line
+  axis.line.x = element_line(color = "black", size = 0.5), axis.ticks.y = element_line(color = "black", size = 0.5),  # Add y-axis ticks
+  axis.ticks.x = element_line(color = "black", size = 0.5)   # Add x-axis ticks   # Add x-axis line
+)
+
+# Create a new theme based on custom_theme for glucose timecourse
+custom_theme_with_legend <- custom_theme +
+  theme(legend.position = "top") 
+```
+
+
+##PLot Body weight values over time
+```{r}
+Bw.group <- readRDS("/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Anthropometrics/Timecouse_data_Treatment_Groups_BW.rds")
+
+BW_values <- data_summary(Bw.group, varname="Bw", 
+                    groupnames=c("diet", "time"))
+
+BW_values$diet <- factor(BW_values$diet, levels = c(1, 2), labels = c("Control", "HFD"))
+
+Bw.plot <- ggplot(data = BW_values, aes(x = time, y = Bw, col = diet, group = diet)) +  
+  geom_errorbar(aes(ymin = Bw, ymax = Bw+Bw_sem), width = 0.15, size = 0.4) +
+  geom_line(size = 0.6) +
+  geom_point(size = 1.5) +
+  scale_x_continuous(name = "Time (wks)", 
+                   breaks = seq(0, 8, 1)) +
+  scale_y_continuous(name = "Body Weight (g)", 
+                     breaks = seq(0, 40, 10),
+                     limits = c(0, 40)) +
+  theme_pubr(legend = "top") + 
+  guides(col = guide_legend(nrow=1, byrow = T)) +
+  scale_color_manual(values = c("Control" = "grey", "HFD" = "black"))+
+  custom_theme_with_legend
+
+# Print the plot
+print(Bw.plot)
+
+library(openxlsx)
+
+write.xlsx(
+  BW_values,
+  file = "/projects/perslab/people/nvg559/glucose_project_directory/data/processed/body_weight_data_summary.xlsx",
+  overwrite = TRUE
+) 
+#ggsave(plot = Bw.plot, filename = #"/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Plots/BW_values_y_axis_zero.png", height = 3, #width = 4, dpi = 400)
+#
+#pdf(file= "/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Plots/BW_values_y_axis_zero.pdf", height #= 3, width = 4)
+#Bw.plot
+#dev.off()
+```
+```{r}
+
+library(nparLD)
+gex.fl.F1<-nparLD(Bw ~ time*diet,subject ="sample", data=Bw.group, description=TRUE)
+attach(Bw.group)
+ex.f2f14<-f1.ld.f1(Bw,time,diet,sample,time.name="time", group.name="diet")
+ex.f2f14$ANOVA.test.mod.Box
+summary(ex.f2f14)
+print(ex.f2f14)
+```
+#Plot GLucose infusion rate timecourse data
+```{r}
+# Create the first plot
+
+Rate.plot <- rate_mean_sem %>% 
+  filter(Group %in% c("Con_Glu", "HF_Glu")) %>% 
+  ggplot(aes(x = time, y = mg_kg_min, col = Group, group = Group)) +  
+  geom_errorbar(aes(ymin = mg_kg_min, ymax = mg_kg_min + mg_kg_min_sem), width = 0.15, size = 0.4) +
+  geom_line(size = 0.6) +
+  geom_point(size = 1.5) +
+  scale_x_continuous(name = "Time (min)", 
+                     breaks = seq(-5, 60, 5))  +
+  scale_y_continuous(name = "Glucose Infusion Rate \n(mg_kg_min)", 
+                     breaks = seq(0, 50, 10),
+                     limits = c(0, 50)) +
+  theme_pubr(legend = "top") + 
+  guides(col = guide_legend(nrow = 1, byrow = TRUE)) +
+  scale_color_manual(values = c("grey", "black")) +
+  custom_theme_with_legend
+Rate.plot
+
+Rate.plot <- rate_mean_sem %>% 
+  filter(Group %in% c("Con_Glu", "HF_Glu")) %>% 
+  ggplot(aes(x = time, y = GIR, col = Group, group = Group)) +  
+  geom_errorbar(aes(ymin = GIR, ymax = GIR + GIR_sem), width = 0.15, size = 0.4) +
+  geom_line(size = 0.6) +
+  geom_point(size = 1.5) +
+  scale_x_continuous(name = "Time (min)", 
+                     breaks = seq(-5, 60, 5))  +
+  scale_y_continuous(name = "Glucose Infusion Rate \n(mg_kg_min)", 
+                     breaks = seq(0, 50, 10),
+                     limits = c(0, 50)) +
+  theme_pubr(legend = "top") + 
+  guides(col = guide_legend(nrow = 1, byrow = TRUE)) +
+  scale_color_manual(values = c("grey", "black")) #+
+  custom_theme_with_legend
+Rate.plot
+
+pdf(file= "/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Plots/Glucose_infusion_rate.pdf", height = 3, width = 4.5)
+Rate.plot
+dev.off()
+```
