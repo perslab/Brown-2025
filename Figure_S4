@@ -1,0 +1,177 @@
+---
+title: "Figure S4"
+output: html_document
+date: "2026-07-04"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+#UMAP DVC
+```{r}
+#neurons<- qs::qread("/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Data/merged_dio_DVC_neuron_filt_labeled.qs")
+neurons <- readRDS("/projects/perslab/people/nvg559/glucose_project_directory/data/interim/merged_dio_DVC_neuron_filt_new_labels_removed_clust.rds")
+neurons$predicted.celltype.m <- gsub("([^_]*)_(.*)_(.*)", "\\1\\2.\\3", neurons$predicted.celltype)
+
+celltype_counts <- table(neurons$predicted.celltype.m, neurons$group)
+valid_celltypes <- names(which(apply(celltype_counts, 1, function(x) all(x >= 25))))
+
+
+umap.embed.neurons <- as.data.frame(neurons@reductions$umap@cell.embeddings)
+umap.embed.neurons$predicted.celltype.m <- neurons$predicted.celltype.m
+label <- data.frame(predicted.celltype.m = unique(neurons$predicted.celltype.m))
+label <- umap.embed.neurons %>% 
+  dplyr::group_by(predicted.celltype.m) %>% 
+  dplyr::summarize(x = median(UMAP_1), y = median(UMAP_2)) 
+
+label <- label %>% 
+  dplyr::filter(predicted.celltype.m %in% valid_celltypes)
+label %>% filter(predicted.celltype.m %in% c("Chat0.0","GABA4.1","Glu2.1","Glu2.2" ))->label
+# Create a vector of unique cell types from your data
+all_celltypes <- unique(umap.embed.neurons$predicted.celltype.m)
+
+# Initialize a color palette where all cell types are initially set to grey
+custom_pal <- setNames(rep("grey", length(all_celltypes)), all_celltypes)
+
+# Update the palette to use specific colors for valid cell types
+# Ensure that the length of 'pal' is sufficient for the number of 'valid_celltypes'
+# If not, you might need to repeat or subset 'pal' accordingly
+custom_pal[valid_celltypes] <- pal[1:length(valid_celltypes)]
+
+
+cell_type_colors <- c(
+  "Chat0.0" = "#984ea3",
+  "GABA4.1" = "#a65628",
+  "Glu2.1" = "#80b1d3",
+  "Glu2.2" = "#ff4500"
+)
+
+# Now, use 'custom_pal' in your plot
+umap.plot <- ggplot(data = umap.embed.neurons, aes(x = UMAP_1, y = UMAP_2, colour = predicted.celltype.m)) +
+  geom_point(size = 0.4, alpha = 0.5) +
+  theme_pubr() +
+  theme(axis.line = element_line(arrow = arrow(type='closed',length = unit(0.2, "cm")), size = 0.5),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        panel.border = element_blank(), 
+        panel.background = element_blank(), 
+        legend.position = "None",
+        axis.title.x = element_text(size=12, hjust = 0, vjust = 2),
+        axis.title.y = element_text(size=12, hjust = 0, vjust = 0, angle = 90),
+        axis.text = element_text(size=7, face="bold")) + 
+  xlab("UMAP 1") + ylab("UMAP 2") + 
+  scale_color_manual(values = cell_type_colors) +
+  geom_text_repel(data = label, aes(label = predicted.celltype.m, x=x, y=y), 
+                  size=5, inherit.aes = F)
+
+umap.plot
+
+
+pdf(file= "/projects/perslab/people/nvg559/glucose_project_directory/figures/draft/highlighted_DVC_neuorns_umap_corrected.pdf", height = 4.7, width = 4.7)
+umap.plot
+dev.off()
+
+```
+
+
+
+## R Markdown
+```{r}
+library(tidyverse)
+library(tidyplots)
+
+DEGs.neurons.sal <-
+    readRDS("/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Output/DE_noNA/new_DEGs_edgeR_DVC_neurons_Controltreatment_diet_response_final_no_NA_m.rds")
+
+
+DEGs.neurons.sal$Glu_2_1 %>% rownames_to_column(var = "gene") %>%  mutate(
+    neg_log10_padj = -log10(PValue),
+    direction = if_else(logFC > 0, "up", "down", NA),
+    candidate = abs(logFC) >= 0.4 & FDR < 0.05
+    ) ->df
+
+df |> 
+  tidyplot(x = logFC, y = neg_log10_padj) |> 
+  add_data_points(data = filter_rows(!candidate),
+                  color = "lightgrey", rasterize = TRUE) |> 
+  add_data_points(data = filter_rows(candidate, direction == "up"),
+                  color = "#FF7777", alpha = 0.5) |> 
+  add_data_points(data = filter_rows(candidate, direction == "down"),
+                  color = "#7DA8E6", alpha = 0.5)  |> 
+  add_data_labels_repel(data = min_rows(FDR, 6, by = direction), label = gene,
+                        color = "#000000", min.segment.length = 0, background = TRUE) |> 
+  adjust_x_axis_title("$Log[2]~fold-change$") |> 
+  adjust_y_axis_title("$-Log[10]~italic(P)~adjusted$")-> Glu_2_1
+
+
+DEGs.neurons.sal$Glu_2_2 %>% rownames_to_column(var = "gene") %>%  mutate(
+    neg_log10_padj = -log10(PValue),
+    direction = if_else(logFC > 0, "up", "down", NA),
+    candidate = abs(logFC) >= 0.4 & FDR < 0.05
+    ) ->df
+
+df |> 
+  tidyplot(x = logFC, y = neg_log10_padj) |> 
+  add_data_points(data = filter_rows(!candidate),
+                  color = "lightgrey", rasterize = TRUE) |> 
+  add_data_points(data = filter_rows(candidate, direction == "up"),
+                  color = "#FF7777", alpha = 0.5) |> 
+  add_data_points(data = filter_rows(candidate, direction == "down"),
+                  color = "#7DA8E6", alpha = 0.5)  |> 
+  add_data_labels_repel(data = min_rows(FDR, 6, by = direction), label = gene,
+                        color = "#000000", min.segment.length = 0, background = TRUE) |> 
+  adjust_x_axis_title("$Log[2]~fold-change$") |> 
+  adjust_y_axis_title("$-Log[10]~italic(P)~adjusted$")-> Glu_2_2
+
+
+DEGs.neurons.sal$Chat_0_0 %>% rownames_to_column(var = "gene") %>%  mutate(
+    neg_log10_padj = -log10(PValue),
+    direction = if_else(logFC > 0, "up", "down", NA),
+    candidate = abs(logFC) >= 0.4 & FDR < 0.05
+    ) ->df
+
+df |> 
+  tidyplot(x = logFC, y = neg_log10_padj) |> 
+  add_data_points(data = filter_rows(!candidate),
+                  color = "lightgrey", rasterize = TRUE) |> 
+  add_data_points(data = filter_rows(candidate, direction == "up"),
+                  color = "#FF7777", alpha = 0.5) |> 
+  add_data_points(data = filter_rows(candidate, direction == "down"),
+                  color = "#7DA8E6", alpha = 0.5)  |> 
+  add_data_labels_repel(data = min_rows(FDR, 6, by = direction), label = gene,
+                        color = "#000000", min.segment.length = 0, background = TRUE) |> 
+  adjust_x_axis_title("$Log[2]~fold-change$") |> 
+  adjust_y_axis_title("$-Log[10]~italic(P)~adjusted$")-> Chat_0_0
+
+
+
+DEGs.neurons.sal$GABA_4_1 %>% rownames_to_column(var = "gene") %>%  mutate(
+    neg_log10_padj = -log10(PValue),
+    direction = if_else(logFC > 0, "up", "down", NA),
+    candidate = abs(logFC) >= 0.4 & FDR < 0.05
+    ) ->df
+
+df |> 
+  tidyplot(x = logFC, y = neg_log10_padj) |> 
+  add_data_points(data = filter_rows(!candidate),
+                  color = "lightgrey", rasterize = TRUE) |> 
+  add_data_points(data = filter_rows(candidate, direction == "up"),
+                  color = "#FF7777", alpha = 0.5) |> 
+  add_data_points(data = filter_rows(candidate, direction == "down"),
+                  color = "#7DA8E6", alpha = 0.5)  |> 
+  add_data_labels_repel(data = min_rows(FDR, 6, by = direction), label = gene,
+                        color = "#000000", min.segment.length = 0, background = TRUE) |> 
+  adjust_x_axis_title("$Log[2]~fold-change$") |> 
+  adjust_y_axis_title("$-Log[10]~italic(P)~adjusted$")-> GABA_4_1
+
+pdf(file= "/projects/perslab/people/nvg559/glucose_project_directory/figures/draft/Fig_sup_4_volcano_hfd_response_Gaba4.1.pdf", height = 4, width = 2.7)
+plot
+dev.off()
+```
+
+
