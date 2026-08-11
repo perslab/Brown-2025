@@ -1,0 +1,401 @@
+---
+title: "Figure 5"
+author: "Jenny Brown"
+date: "23/05/2024"
+output: html_document
+params:
+  dvc_obj: "/projects/perslab/people/nvg559/glucose_project_directory/data/interim/merged_dio_DVC_neuron_filt_new_labels_removed_clust.rds"
+  DEGs_edgeR_dvc_file: "new_DEGs_edgeR_DVC_neurons_Controldiet_glucoseresponse_final_no_NA.rds"
+  arc_obj: "Vmh_arc_neurons_filt_processed_labeled_filtered_cellex.qs"
+  DEGs_edgeR_arc_file: "DEGs_edgeR_ARC_VMH_neurons_Controldiet_glucoseresponse_final_no_NA.rds"
+  IEG_file: "Combine_arc_dvc/Con_diet_Glu_response_arc_dvc_neurons_IEG_score.rds"
+  data_set_name: "/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Output/Combine_arc_dvc/new_Con_diet_Glu_response_arc_dvc_neurons.rds"
+  data_set_name_2: "/projects/nvg559/Glucose_paper/Brown-2024/Output/Combine_arc_dvc/Con_diet_Glu_response_arc_dvc_neurons_IEG_score.rds"
+  data_set_name_3: "/projects/nvg559/Glucose_paper/Brown-2024/Output/Combine_arc_dvc/Con_diet_Glu_response_arc_dvc_neurons_magma_RG.rds"
+  data_set_name_4: "/projects/nvg559/Glucose_paper/Brown-2024/Output/Combine_arc_dvc/Con_diet_Glu_response_arc_dvc_neurons_magma_BMI.rds"
+---
+
+## Libraries
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(purrr)
+library(qs)
+library(readr)
+library(reshape2)
+library(ggpubr)
+library(readxl)
+library(qs)
+library(patchwork)
+```
+## Load Paths
+```{r}
+base_path <- "/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024"
+data_path <- file.path(base_path, "Data")
+output_path <- file.path(base_path, "Output")
+DE_noNA_path <- file.path(output_path, "DE_noNA")
+```
+
+## Function to process differentallly expressed gene 
+```{r}
+process_DEGs_data <- function(seurat_obj, DEGs_list, celltype_col, group_col, brain_region, fdr_threshold = 0.05, min_cells = 25) {
+  # Count cell types
+  
+  celltype_vec <- seurat_obj[[celltype_col]]
+  group_vec <- seurat_obj[[group_col]]
+
+# If either is a data frame, flatten it
+if (is.data.frame(celltype_vec)) celltype_vec <- celltype_vec[[1]]
+if (is.data.frame(group_vec)) group_vec <- group_vec[[1]]
+
+# Now build the table
+celltype_counts <- table(celltype_vec, group_vec)
+  #celltype_counts <- table(seurat_obj[[celltype_col]], seurat_obj[[group_col]])
+  valid_celltypes <- names(which(apply(celltype_counts, 1, function(x) all(x >= min_cells))))
+
+  # Filter the list of dataframes for significant DEGs
+  filtered_list <- DEGs_list %>%
+    keep(~ any(.x$FDR < fdr_threshold))
+
+  # Name dataframes in the list
+  df_list_named <- map2(filtered_list, names(filtered_list), ~ mutate(.x, celltype = .y))
+
+  # Define a function to convert row names to a column
+  add_gene_column <- function(df) {
+    df %>%
+      mutate(gene = row.names(.)) %>%
+      dplyr::select(gene, everything())
+  }
+
+  # Apply the function to each element of the list
+  processed_DEGs <- purrr::map(df_list_named, add_gene_column)
+
+  # Combine and filter
+  combined_df <- bind_rows(processed_DEGs, .id = "celltype") %>%
+    filter(FDR < fdr_threshold)
+
+  # Generate gene counts
+  gene_counts <- combined_df %>%
+    group_by(celltype) %>%
+    summarize(
+      Total = n(),
+      Up = sum(logFC > 0),
+      Down = sum(logFC < 0)
+    ) %>%
+    arrange(desc(Total))
+
+  # Merge counts and reorder cell types
+  combined_df <- left_join(combined_df, gene_counts, by = "celltype")
+  combined_df$celltype <- factor(combined_df$celltype, levels = gene_counts$celltype)
+
+  # Calculate total DE and reorder
+  gene_counts <- gene_counts %>%
+    mutate(Total_DE = Up + Down)
+  combined_df <- combined_df %>%
+    mutate(celltype = factor(celltype, levels = gene_counts$celltype[order(gene_counts$Total_DE, decreasing = FALSE)]))
+
+  # Add brain region indicator
+  combined_df$brainR <- brain_region
+
+  return(combined_df)
+}
+
+```
+
+## Load Seurat Object and DE dataframe for both Brain Regions
+```{r}
+dvc <- readRDS(file.path(params$dvc_obj))
+DEGs_list_dvc <- readRDS(file.path(DE_noNA_path, params$DEGs_edgeR_dvc_file))
+
+arc <- qs::qread(file.path(data_path, params$arc_obj))
+DEGs_list_arc <- readRDS(file.path(DE_noNA_path, params$DEGs_edgeR_arc_file))
+```
+
+```{r}
+# run function on dvc
+result_df_dvc <- process_DEGs_data(
+  seurat_obj = dvc, 
+  DEGs_list = DEGs_list_dvc, 
+  celltype_col = "predicted.celltype", 
+  group_col = "group", 
+  brain_region = "DVC"
+)
+
+# run function on arc
+result_df_arc <- process_DEGs_data(
+  seurat_obj = arc, 
+  DEGs_list = DEGs_list_arc, 
+  celltype_col = "labels_2", 
+  group_col = "group", 
+  brain_region = "ARC"
+)
+
+result_df_dvc$celltype <- gsub("_(\\d+)_", "\\1.", result_df_dvc$celltype)
+
+result_df_arc$celltype <- gsub("_", "/", result_df_arc$celltype)
+
+# Combind arc/dvc
+DE_data <- rbind(result_df_dvc, result_df_arc)
+```
+```{r}
+# Construct file path based on parameters
+file_path <- paste0(params$data_set_name)
+
+saveRDS(DE_data, file = file_path)
+
+write_xlsx(DE_data, "/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Output/Combine_arc_dvc/new_Con_diet_Glu_response_arc_dvc_neurons.xlsx")
+```
+
+```{r}
+DE_data <- read_excel(
+  "/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Output/Combine_arc_dvc/new_Con_diet_Glu_response_arc_dvc_neurons.xlsx"
+)
+
+DEGs.plot <- ggplot(DE_data, aes(x = Total, y = fct_reorder(celltype, Total), fill = brainR)) +
+  geom_bar(stat = "identity", position = position_dodge(), width = 0.5, size = 0.3) +  # Corrected the fill and color handling
+  scale_fill_manual(values = pal) +  # Ensure this matches your brainR labels exactly
+  theme_pubr() +  # Add pubr theme
+  custom_theme() +theme(
+  axis.text.y = element_text(size = 6))+
+  ylab(NULL) + xlab("# of Differentially Expressed Genes") +
+  scale_x_continuous(breaks = seq(0, 40, 10), position = "top") +  # Move the x-axis to the top
+  ggtitle("Glucose vs. Veh (Control Diet)")
+
+# Print the plot
+print(DEGs.plot)
+```
+
+```{r}
+Log_FC_dot <- ggplot(DE_data, aes(x = logFC, y = fct_reorder(celltype, Total), colour = brainR)) +
+  geom_point(alpha = 0.5, size = 2) +
+  scale_color_manual(values = pal) +
+  labs(
+    x = expression(Log[2] ~ "Fold-change"),
+    y = "Neuron populations",
+    title = ""
+  ) +
+  scale_x_continuous(position = "top") +
+  custom_theme()+theme(
+  axis.text.y = element_text(size = 7))
+
+print(Log_FC_dot)
+```
+
+
+```{r,fig.height=12, fig.width=5}
+plot1 <- Log_FC_dot +  
+  (ggplot() + theme_void()) + 
+  (DEGs.plot + theme(axis.text.y = element_blank())) + 
+  plot_layout(widths = c(1.75, 0, 1.2))
+
+plot1
+```
+
+```{r}
+pdf(file= "/projects/perslab/people/nvg559/glucose_project_directory/figures/draft/new_Fig_5_DE_Con_glu_response.pdf", height = 7, width = 3.5)
+print(plot1)
+dev.off()
+```
+
+## Fig 5b
+
+```{r}
+DE_data <- readRDS(params$data_set_name)
+
+# Sum totalDE for each celltype and Brain_R
+df_summed <- DE_data %>%
+  dplyr::select(celltype, brainR, Total) %>%
+  distinct(celltype, brainR, .keep_all = TRUE)%>%
+  group_by(brainR) %>%
+  summarise(totalDE = sum(Total))
+
+ggplot(df_summed, aes(x = brainR, y = totalDE, fill = brainR)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "", 
+       x = "Brain Region", 
+       y = "Total number of DE genes") +
+  theme_minimal() +
+  scale_fill_manual(name = "Brain Region", values = c("ARC"= "#faa32b", "DVC" = "#237194"))  -> plot1
+```
+
+## Fig 5c
+```{r}
+# Load packages
+library(dplyr)
+library(purrr)     # for map(), keep(), imap_dfr()
+library(ggplot2)
+library(ggrepel)   # for geom_text_repel()
+library(ggbreak)
+
+# Suppose you have a list of data frames called `de_list`, 
+# where each data frame has columns like: gene, logFC, PValue, FDR, etc.
+Arc_con_treatment<-readRDS("/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Output/DE_noNA/DEGs_edgeR_ARC_VMH_neurons_Controldiet_glucoseresponse_final_no_NA.rds")
+
+Arc_con_treatment <- Arc_con_treatment[!(is.na(Arc_con_treatment))]
+
+filtered_list <- Arc_con_treatment %>%
+  keep(~ any(.x$FDR < 0.05))
+
+# Add column with dataframe name from list
+df_list_named <- map2(filtered_list, names(filtered_list), ~ mutate(.x, celltype = .y))
+
+# Define a function to convert row names to a column
+add_gene_column <- function(df) {
+  df %>% 
+    mutate(gene = row.names(df)) %>% 
+    dplyr::select(gene, everything())
+}
+
+# Apply the function to each element of the list
+Arc_con_treatment <- purrr::map(df_list_named, add_gene_column)
+# 1) Filter to cell types that actually have FDR < 0.05 genes
+# 2) Within each data frame, keep only the rows where FDR < 0.05
+# 3) Combine them, adding the cell type name as a column
+df_combined <- Arc_con_treatment %>%
+  keep(~ any(.x$FDR < 0.05)) %>%              # keep only those that have significant hits
+  purrr::map(~ filter(.x, FDR < 0.05)) %>%           # filter each DF to sig genes
+  imap_dfr(~ mutate(.x, cell_type = .y))      # combine into one data frame, track which cell type
+
+
+# Suppose you have a list of data frames called `de_list`, 
+# where each data frame has columns like: gene, logFC, PValue, FDR, etc.
+DVC_con_treatment<-readRDS("/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Output/DE_noNA/new_DEGs_edgeR_DVC_neurons_Controldiet_glucoseresponse_final_no_NA.rds")
+
+DVC_con_treatment <- DVC_con_treatment[!(is.na(DVC_con_treatment))]
+
+filtered_list_dvc <- DVC_con_treatment %>%
+  keep(~ any(.x$FDR < 0.05))
+
+# Add column with dataframe name from list
+df_list_named_dvc <- map2(filtered_list_dvc, names(filtered_list_dvc), ~ mutate(.x, celltype = .y))
+
+# Define a function to convert row names to a column
+add_gene_column <- function(df) {
+  df %>% 
+    mutate(gene = row.names(df)) %>% 
+    dplyr::select(gene, everything())
+}
+
+# Apply the function to each element of the list
+Dvc_con_treatment <- purrr::map(df_list_named_dvc, add_gene_column)
+# 1) Filter to cell types that actually have FDR < 0.05 genes
+# 2) Within each data frame, keep only the rows where FDR < 0.05
+# 3) Combine them, adding the cell type name as a column
+df_combined_dvc <- Dvc_con_treatment %>%
+  keep(~ any(.x$FDR < 0.05)) %>%              # keep only those that have significant hits
+  purrr::map(~ filter(.x, FDR < 0.05)) %>%           # filter each DF to sig genes
+  imap_dfr(~ mutate(.x, cell_type = .y))  
+
+comb<-rbind(df_combined,df_combined_dvc)
+
+```
+
+```{r}
+class(comb)
+str(comb$gene)
+
+gene_specificity <- comb %>%
+  distinct(gene, cell_type) %>%
+  dplyr::count(gene, name = "num_celltypes")
+
+summary_specificity <- gene_specificity %>%
+  dplyr::count(num_celltypes, name = "n_genes") %>%
+  mutate(percent = n_genes / sum(n_genes) * 100)  
+
+ggplot(summary_specificity, aes(x = factor(num_celltypes), y = percent)) +
+  geom_bar(stat = "identity", fill = "grey50") +
+  labs(
+    x = "Number of Neuronal Populations",
+    y = "Percentage of DE Genes"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),        # remove major grid lines
+    panel.grid.minor = element_blank(),        # remove minor grid lines
+    axis.line = element_line(color = "black"), # show axis lines
+    axis.ticks = element_line(color = "black") # show tick marks
+  ) -> plot
+
+write_xlsx(summary_specificity, "/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Output/DE_noNA/overlap_in_DEGs_edgeR_ARC_VMH_DVC_neurons_glucose_response_control_diet.xlsx")
+
+pdf(file = "/projects/perslab/people/nvg559/glucose_project_directory/figures/draft/Fig4_Frequency_plot.pdf", family = "Helvetica", width = 6, height = 5)
+plot 
+dev.off()
+```
+
+## Figure 5d
+
+```{r}
+seur_obj <- qs::qread("/maps/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Data/Vmh_arc_neurons_filt_processed_labeled_filtered_cellex.qs")
+```
+
+```{r}
+IEG <- c('Fosb','Npas4','Fos','Junb','Nr4a1','Egr4','Arc','Egr2','Egr1','Maff','Ier2','Klf4','Dusp1','Gadd45g','Dusp5','Egr3','Btg2','Ppp1r15a','Amigo3')
+```
+
+
+```{r}
+subset(seur_obj, subset = diet == "C")->seur_obj_C
+
+seur_obj_C <- AddModuleScore(seur_obj_C, features = list(IEG), name='IEG')
+
+mods <- 
+  seur_obj_C[[]] %>% 
+  mutate(gene = IEG1) %>% 
+  group_by(sample.ID, treatment, labels_2) %>% 
+  dplyr::summarise(mean = mean(gene), n=n()) %>%
+  group_by(labels_2) %>% 
+  mutate(tot = sum(n>10)) %>%  arrange(labels_2) %>% 
+  filter(tot > 5) %>% 
+  lm(mean ~ treatment*labels_2, data= .)
+
+
+emm<- emmeans(mods, ~ treatment*labels_2)
+```
+
+
+```{r}
+## 1. Extract only Ghrh neurons from the emmeans table
+emm_ghrh <- as.data.frame(emm) %>%
+  filter(labels_2 == "Ghrh")
+
+## 2. Prep data for plotting
+plot_df <- emm_ghrh %>%
+  transmute(
+    term     = treatment,
+    estimate = emmean,
+    lower    = emmean - SE,
+    upper    = emmean + SE
+  ) %>%
+  mutate(term = fct_rev(term))   # puts glucose above control
+
+theme(
+  axis.line = element_line(color = "black", linewidth = 0.4),
+  axis.ticks = element_line(color = "black", linewidth = 0.4)
+)
+ggplot(plot_df, aes(x = estimate, y = term)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red", linewidth = 0.4) +
+  geom_point(size = 2, color = "black") +
+  geom_errorbarh(aes(xmin = lower, xmax = upper),
+                 height = 0.20, alpha = 0.7, linewidth = 0.5) +
+  labs(
+    x = "Inferred Activity",
+    y = "Treatment",
+    title = expression(italic(Ghrh)~"neurons")
+  ) +
+  theme_tufte(base_size = 11) +
+  theme(
+    text  = element_text(family = "Helvetica"),
+    axis.title = element_text(),
+    axis.text  = element_text(color = "black"),
+    plot.title = element_text(hjust = 0.5),
+    # ADD ACTUAL AXES:
+    axis.line = element_line(color = "black", linewidth = 0.4),
+    axis.ticks = element_line(color = "black", linewidth = 0.4)
+  )->ghrh_plot
+
+pdf(file= "//projects/perslab/people/nvg559/glucose_project_directory/figures/final/Ghrh_Con_IEG2.pdf",width = 2, height = 2)
+ghrh_plot
+dev.off()
+```
+
