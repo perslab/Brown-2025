@@ -1,0 +1,296 @@
+---
+title: "Supp.Fig5"
+output: html_document
+date: "2025-05-04"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+library(ggplot2)
+library(ggrepel)
+```
+
+## Load Seurat Object in oder to collect the cell ytoe
+```{r}
+Arc_astrocytes_con_treatment <- readRDS("/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/output/DEGs_edgeR_ARC_nonneurons_Controldiet_glucoseresponse_final_no_NA.rds")
+
+# Add column with dataframe name from list
+df_list_named <- map2(Arc_astrocytes_con_treatment, names(Arc_astrocytes_con_treatment), ~ mutate(.x, celltype = .y))
+
+# Define a function to convert row names to a column
+add_gene_column <- function(df) {
+  df %>% 
+    dplyr::mutate(gene = row.names(df)) %>% 
+    dplyr::select(gene, everything())
+}
+
+# Apply the function to each element of the list
+df_list_gene <- purrr::map(df_list_named, add_gene_column)
+
+
+Astro_arc<-df_list_gene$Astrocytes #subset the list to only include one cell type change the  
+
+
+Dvc_astrocytes_con_treatment <- readRDS("/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/output/DEGs_edgeR_DVC_nonneurons_Controldiet_glucoseresponse_final_wNA.rds")
+
+Dvc_astrocytes_con_treatment <- Dvc_astrocytes_con_treatment[!(is.na(Dvc_astrocytes_con_treatment))]
+# Add column with dataframe name from list
+df_list_named <- map2(Dvc_astrocytes_con_treatment, names(Dvc_astrocytes_con_treatment), ~ mutate(.x, celltype = .y))
+
+# Define a function to convert row names to a column
+add_gene_column <- function(df) {
+  df %>% 
+    dplyr::mutate(gene = row.names(df)) %>% 
+    dplyr::select(gene, everything())
+}
+
+# Apply the function to each element of the list
+df_list_gene <- purrr::map(df_list_named, add_gene_column)
+
+
+Astro_dvc<-df_list_gene$Astrocytes
+Astro_dvc %>% mutate(region= "DVC") ->Astro_dvc
+Astro_arc %>% mutate(region= "ARC/VMH") ->Astro_arc
+
+DE<-dplyr::left_join(Astro_dvc, Astro_arc,"region", "gene") %>% mutate_if(is.numeric,coalesce,0)
+combined_df <- merge(Astro_dvc, Astro_arc, by = "gene")
+
+pearson_test <-cor.test(combined_df$logFC.x, combined_df$logFC.y, method = "pearson") 
+pearson_test$estimate 
+
+# Custom color based on significance
+combined_df$point_color <- ifelse(combined_df$FDR.x < 0.05 & combined_df$FDR.y < 0.05, "black", "grey")
+
+# Calculate correlation
+cor_test <- cor.test(combined_df$logFC.x, combined_df$logFC.y, method = "pearson")
+
+# Format correlation text
+cor_text <- paste0("r = ", round(cor_test$estimate, 2), 
+                   ", p = ", format.pval(cor_test$p.value, digits = 2, eps = 1e-3))
+label_points <- combined_df %>% 
+  filter(FDR.x < 0.05 & FDR.y < 0.05)
+
+# Main plot
+ggplot(combined_df, aes(x = logFC.x, y = logFC.y)) +
+  geom_point(aes(color = point_color), alpha = 0.6) +
+  scale_color_identity() +  # Use color values as-is
+  geom_point(data = label_points, color = "black") +
+  geom_label_repel(data = label_points,
+                   aes(label = gene),
+                   box.padding = 0.0,
+                   point.padding = 0.5,
+                   size = 4,
+                   alpha = 0.7,
+                   label.size = NA,
+                   color = "black") +
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  annotate("text", x = min(combined_df$logFC.x), y = max(combined_df$logFC.y),
+           label = cor_text, hjust = 0, vjust = 1, size = 4.5) +
+  geom_hline(yintercept = 0, lty = 2) +
+  geom_vline(xintercept = 0, lty = 2) +
+  coord_equal() +
+  labs(
+    x = "DVC Astrocytes\nLog2FC (Glucose vs. Control)",
+    y = "ARC/VMH Astrocytes\nLog2FC (Glucose vs. Control)"
+  ) +
+  theme(    panel.background = element_blank(),      # Remove panel background
+    plot.background = element_blank(),       # Remove overall plot background
+    panel.grid.major = element_blank(),      # Remove major gridlines
+    panel.grid.minor = element_blank(),    
+    axis.line = element_line(color = "black"), # Keep axis lines
+    axis.ticks = element_line(color = "black")) -> plot
+
+pdf(file= "/maps/projects/perslab/people/nvg559/glucose_project_directory/figures/draft/Fig_3a_astro_arc_dvc_correlation.pdf", height = 4.5, width = 4.5)
+plot
+dev.off()
+
+library(openxlsx)
+
+write.xlsx(
+  combined_df,
+  file = "/projects/perslab/people/nvg559/glucose_project_directory/data/processed/Correlation_arc_dvc_glucose_response_control_diet.xlsx",
+  overwrite = TRUE
+)
+```
+
+```{r}
+astrocytes<- qread("/maps/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Data/arc_dvc_astrocytes.qs")
+gene_expression_values <- FetchData(astrocytes, 'Insr')
+cutoff <- 0.5
+
+astrocytes$Insulin_Classification <- ifelse(FetchData(astrocytes, 'Insr') > cutoff, 'Positive', 'Negative')
+pal <- c("ARC" = "#faa32b", "DVC" = "#237194")
+VlnPlot(astrocytes,"Insr", group.by = "Insulin_Classification", split.by = "brainR", cols = pal)-> vln_plot
+
+pdf(file= "/maps/projects/perslab/people/nvg559/glucose_project_directory/figures/draft/Vln_plot_astrcoytes_IR_positive_negative_ARC_DVC.pdf", height = 3.5, width = 4.5)
+vln_plot
+dev.off()
+```
+```{r}
+astrco_arc <- subset(astrocytes, subset = brainR %in% c('ARC'))
+astrco_arc_c <- subset(astrco_arc, subset = diet %in% c('C'))
+groups <- c("C", "G")
+valid_celltypes <- c("Positive","Negative")
+table(astrco_arc_c$sample.ID, astrco_arc_c$Insulin_Classification)
+
+
+ARC.nonneurons_dio_C <- foreach(i = valid_celltypes) %dopar% {
+    
+result <- tryCatch({
+        
+        seurat.obj.sub <- subset(astrco_arc_c, Insulin_Classification == i)  # Define Diet
+
+        samples.keep <- names(table(seurat.obj.sub$hash.treatment))[which(table(seurat.obj.sub$hash.treatment) >= 4)]
+
+        # Handle the Warning
+        modified_table <- table(gsub(".*_", "", samples.keep))
+        if (all(is.na(modified_table))) {
+            statement3 <- TRUE
+        } else {
+            statement3 <- min(modified_table) < 2
+        }
+        
+   # Skip if no samples constitute at least 2 cells
+   statement1 <- length(samples.keep) == 2 
+   # Skip if both treatment groups are not found
+   statement2 <- length(unique(gsub(".*_", "", samples.keep))) != 2 
+   # Skip if at least two samples in each treatment group are not found
+   statement3 <- min(table(gsub(".*_", "", samples.keep))) < 2
+  
+   if (statement1 | statement2 | statement3) {
+       print(NA)
+     } else {
+
+   seurat.obj.sub <- subset(seurat.obj.sub, hash.treatment %in% samples.keep)
+    
+   
+   genes.keep <- which(apply(seurat.obj.sub@assays$RNA@counts, 1, function(x) {sum(x != 0)}) >= (ncol(seurat.obj.sub)/10))
+   seurat.obj.sub <- subset(seurat.obj.sub, features = names(genes.keep))
+
+   # Pseudobulk
+   sample <- unique(seurat.obj.sub$hash.treatment)
+   genes <- rownames(seurat.obj.sub@assays$RNA@counts)
+    
+   pseudo.data <- data.frame(matrix(NA, nrow = length(genes), ncol = length(sample)))
+   rownames(pseudo.data) <- genes
+   colnames(pseudo.data) <- sample
+    
+   pseudo.meta <- data.frame(matrix(NA, nrow = length(sample), ncol = 2))
+   colnames(pseudo.meta) <- c("sample", "treatment")
+   ###come back and determine why this portion of the code is not running   issue is with the above data 
+   for (j in 1:length(sample)) {
+     
+     pseudo.data[, j] <-
+       as.integer(apply(seurat.obj.sub@assays$RNA@counts[genes, which(seurat.obj.sub$hash.treatment == sample[j]), drop = F], 1, sum))
+     pseudo.meta$sample[j] <- sample[j]
+     pseudo.meta$treatment[j] <- unique(as.character(seurat.obj.sub$treatment[which(seurat.obj.sub$hash.treatment == sample[j])]))
+     }
+  
+  # Normalization
+  condition <- factor(gsub("Arc[0-9]+_", "", colnames(pseudo.data)), levels = groups)
+  #condition <- factor(colnames(pseudo.data), levels = groups)
+  design <- model.matrix(~condition)
+  
+  # EdgeR
+     y <- DGEList(counts=pseudo.data, group = condition) ## this should bedesing
+    
+    # Filter out genes with insufficient expression for further analysis
+    keep <- filterByExpr(y, group= condition) # <- The group you wanna do DE for
+    y <- y[keep,]
+    
+     y <- calcNormFactors(y)
+     y <- estimateGLMRobustDisp(y, design = design)    
+  
+     fit <- glmFit(y,design, robust=TRUE)
+     
+     lrt <- glmLRT(fit, coef=2)
+     
+     DEGs <- topTags(lrt, n = nrow(y))$table 
+
+     return(DEGs)
+
+     }
+}, error = function(e) {
+        message(paste("Error with cell type:", i, "; Error:", e$message))
+        return(NULL) # or another appropriate default value
+})
+    
+  return(result)
+ }
+
+#DEGs.edgeR.DVC.neurons 
+names(ARC.nonneurons_dio_C) <- valid_celltypes
+```
+```{r}
+add_gene_column <- function(df) {
+  df %>% 
+    dplyr::mutate(gene = row.names(df)) %>% 
+    dplyr::select(gene, everything())
+}
+
+# Apply the function to each element of the list
+ARC.nonneurons_dio_C <- purrr::map(ARC.nonneurons_dio_C, add_gene_column)
+```
+
+```{r}
+ARC.nonneurons_dio_C$Positive %>% 
+  inner_join(ARC.nonneurons_dio_C$Negative,
+             by="gene", suffix=c(".pos",".neg")) %>% 
+  filter(FDR.pos<0.05|FDR.neg<0.05) ->combined_df
+
+
+
+# Custom color based on significance
+combined_df$point_color <- ifelse(combined_df$FDR.pos < 0.05 & combined_df$FDR.neg < 0.05, "black", "grey")
+
+# Calculate correlation
+cor_test <- cor.test(combined_df$logFC.pos, combined_df$logFC.neg, method = "pearson")
+
+# Format correlation text
+cor_text <- paste0("r = ", round(cor_test$estimate, 2), 
+                   ", p = ", format.pval(cor_test$p.value, digits = 2, eps = 1e-3))
+label_points <- combined_df %>% 
+  filter(FDR.pos < 0.05 & FDR.neg < 0.05)
+
+# Main plot
+ggplot(combined_df, aes(x = logFC.pos, y = logFC.neg)) +
+  geom_point(aes(color = point_color), alpha = 0.6) +
+  scale_color_identity() +  # Use color values as-is
+geom_point(data = label_points, aes(x = logFC.pos, y = logFC.neg), color = "black") +
+geom_label_repel(data = label_points,
+                 aes(x = logFC.pos, y = logFC.neg, label = gene),
+                 box.padding = 0.0,
+                 point.padding = 0.5,
+                 size = 4,
+                 alpha = 0.7,
+                 label.size = NA,
+                 color = "black") +
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  annotate("text", x = min(combined_df$logFC.pos), y = max(combined_df$logFC.neg),
+           label = cor_text, hjust = 0, vjust = 1, size = 4.5) +
+  geom_hline(yintercept = 0, lty = 2) +
+  geom_vline(xintercept = 0, lty = 2) +
+  coord_equal() +
+  labs(
+    x = "Arc/VMH IR Positive\nLog2FC (Glucose vs. Control)",
+    y = "ARC/VMH IR Negative\nLog2FC (Glucose vs. Control)"
+  ) +
+  theme(    panel.background = element_blank(),      # Remove panel background
+    plot.background = element_blank(),       # Remove overall plot background
+    panel.grid.major = element_blank(),      # Remove major gridlines
+    panel.grid.minor = element_blank(),    
+    axis.line = element_line(color = "black"), # Keep axis lines
+    axis.ticks = element_line(color = "black")) -> plot
+
+write.xlsx(
+  combined_df,
+  file = "/projects/perslab/people/nvg559/glucose_project_directory/data/processed/Correlation_arc_arcIR_positive_glucose_response_control_diet.xlsx",
+  overwrite = TRUE
+)
+
+pdf(file= "/maps/projects/perslab/people/nvg559/glucose_project_directory/figures/draft/Fig3e_supp_ARCVMH_edgrDE_astrcoytes_IR_positive_negative_control_diet.pdf", height = 4.4, width = 4.4)
+plot
+dev.off()
+```
