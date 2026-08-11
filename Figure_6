@@ -1,0 +1,345 @@
+---
+title: "Figure_6"
+output: html_document
+date: "2025-01-30"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load Libraries
+```{r}
+library(devtools)
+library(RRHO2)
+library(dplyr)
+library(purrr)
+library(ComplexHeatmap)
+library(ggplot2)
+library(colorRamps)
+library(gprofiler2)
+library(forcats)
+library(stringr)
+library(ggpubr)
+library(tibble)
+library(ggrepel)
+library(dplyr)
+library(tibble)
+library(hrbrthemes)
+library(scico)
+library(qs)
+library(forcats)
+library(stringr)
+```
+## Load Data
+```{r}
+arc_dvc <- qread("/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Data/Arc_Dvc_nonneuronal_dio_filtered_labeled.qs")
+```
+
+```{r}
+DE_con<-readRDS("/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Output/DE_noNA/DEGs_edgeR_ARC_nonneurons_Controldiet_glucoseresponse_final_no_NA.rds")
+DE_HF<-readRDS("/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Output/DE_noNA/DEGs_edgeR_ARC_nonneurons_HFdiet_glucoseresponse_final_no_NA.rds")
+
+# Initialize a data frame to store results
+results_df <- data.frame(Cell_Type = character(),
+                         tau = numeric(),
+                         p_value = numeric(),
+                         stringsAsFactors = FALSE)
+
+# Get the list of cell types from the names of DE_con (assuming DE_con and DE_HF have the same structure)
+cell_types <- names(DE_con)
+
+# Loop over each cell type
+for (cell_type in cell_types) {
+  
+  # Extract the data frame for the current cell type from both lists
+  con_data <- DE_con[[cell_type]] 
+  hf_data <- DE_HF[[cell_type]]
+  
+  # Add the 'Gene' column for merging (assuming 'Gene' is the row names in both data frames)
+  con_data$Gene <- rownames(con_data)
+  hf_data$Gene <- rownames(hf_data)
+  
+  # Reset row names
+  rownames(con_data) <- NULL
+  rownames(hf_data) <- NULL
+  
+  # Merge the data frames by the 'Gene' column
+  merged_df <- merge(con_data, hf_data, by = "Gene", suffixes = c("_con", "_hf"))
+  
+  # Check if the logFC columns exist in both merged data frames
+  if ("logFC_con" %in% colnames(merged_df) && "logFC_hf" %in% colnames(merged_df)) {
+    
+    # Run the Kendall correlation test on logFC for this cell type
+    test_result <- cor.test(merged_df$logFC_con, merged_df$logFC_hf, method = "kendall")
+    
+    # Store the tau (estimate) and p-value in the results data frame
+    results_df <- rbind(results_df, data.frame(Cell_Type = cell_type, 
+                                               tau = test_result$estimate,
+                                               p_value = test_result$p.value))
+  } else {
+    # If logFC columns are missing, handle the error (optional)
+    warning(paste("logFC column missing for cell type:", cell_type))
+  }
+}
+
+# Adjust the p-values for multiple testing using the Benjamini-Hochberg method
+results_df$adjusted_p_value <- p.adjust(results_df$p_value, method = "BH")
+
+# Add a significance column based on the adjusted p-value (threshold = 0.05)
+results_df$significance <- ifelse(results_df$adjusted_p_value < 0.05, "significant", "not_significant")
+
+# Display the results dataframe with tau, p-values, adjusted p-values, and significance
+print(results_df)
+
+results_df-> arc_results_df
+
+arc_results_df %>% mutate(brainR = "ARC")-> arc_results_df
+
+DE_con<-readRDS("/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Output/DE_noNA/DEGs_edgeR_DVC_nonneurons_Controldiet_glucoseresponse_final_no_NA.rds")
+DE_HF<-readRDS("/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Output/DE_noNA/DEGs_edgeR_DVC_nonneurons_HFdiet_glucoseresponse_final_no_NA.rds")
+
+# Initialize a data frame to store results
+results_df <- data.frame(Cell_Type = character(),
+                         tau = numeric(),
+                         p_value = numeric(),
+                         stringsAsFactors = FALSE)
+
+# Get the list of cell types from the names of DE_con (assuming DE_con and DE_HF have the same structure)
+cell_types <- names(DE_con)
+
+# Loop over each cell type
+for (cell_type in cell_types) {
+  
+  # Extract the data frame for the current cell type from both lists
+  con_data <- DE_con[[cell_type]] 
+  hf_data <- DE_HF[[cell_type]]
+  
+  # Add the 'Gene' column for merging (assuming 'Gene' is the row names in both data frames)
+  con_data$Gene <- rownames(con_data)
+  hf_data$Gene <- rownames(hf_data)
+  
+  # Reset row names
+  rownames(con_data) <- NULL
+  rownames(hf_data) <- NULL
+  
+  # Merge the data frames by the 'Gene' column
+  merged_df <- merge(con_data, hf_data, by = "Gene", suffixes = c("_con", "_hf"))
+  
+  # Check if the logFC columns exist in both merged data frames
+  if ("logFC_con" %in% colnames(merged_df) && "logFC_hf" %in% colnames(merged_df)) {
+    
+    # Run the Kendall correlation test on logFC for this cell type
+    test_result <- cor.test(merged_df$logFC_con, merged_df$logFC_hf, method = "kendall")
+    
+    # Store the tau (estimate) and p-value in the results data frame
+    results_df <- rbind(results_df, data.frame(Cell_Type = cell_type, 
+                                               tau = test_result$estimate,
+                                               p_value = test_result$p.value))
+  } else {
+    # If logFC columns are missing, handle the error (optional)
+    warning(paste("logFC column missing for cell type:", cell_type))
+  }
+}
+
+# Adjust the p-values for multiple testing using the Benjamini-Hochberg method
+results_df$adjusted_p_value <- p.adjust(results_df$p_value, method = "BH")
+
+# Add a significance column based on the adjusted p-value (threshold = 0.05)
+results_df$significance <- ifelse(results_df$adjusted_p_value < 0.05, "significant", "not_significant")
+
+# Display the results dataframe with tau, p-values, adjusted p-values, and significance
+print(results_df)
+
+results_df-> dvc_results_df
+
+dvc_results_df %>% mutate(brainR = "DVC")-> dvc_results_df
+
+
+
+rbind(arc_results_df,dvc_results_df) ->combind_cor
+
+combind_cor <- combind_cor %>%
+  rename_with(~"cell.type", matches("^Cell_Type\\s*$"))
+
+DE <- df_complete %>%
+  full_join(combind_cor, by = "cell.type",) %>%
+  mutate(across(where(is.numeric), ~ coalesce(.x, 0)))
+
+DE <- df_complete %>%
+  full_join(combind_cor, by = c("cell.type", "brainR")) %>%
+  mutate(across(where(is.numeric), ~ coalesce(.x, 0)))
+```
+
+```{r}
+df_complete <- DE %>%
+  group_by(cell.type) %>%
+  mutate(max_total_hf = max(Total_hf, na.rm = TRUE)) %>%
+  ungroup()
+
+
+df_complete %>%
+  ggplot() +
+  aes(y = fct_reorder(cell.type, Total_hf), x = Total_hf, fill = factor(brainR, levels = c("DVC", "ARC")), 
+      color = factor(comparison, levels = c("DVC", "ARC"))) +
+geom_col(width = 0.5, position = position_dodge(width = 0.2), color = "black", alpha = 1, size = 0.3) +
+  scale_fill_manual(values = c("DVC" = "#237194", "ARC" = "#faa32b")) +
+  theme_pubr() +
+  theme(axis.text.y = element_text(size = 8, family = "Helvetica"),
+        axis.title = element_text(size = 6, family = "Helvetica"),
+        axis.text.x = element_text(size = 6, family = "Helvetica"),
+        legend.text = element_text(size = 5, family = "Helvetica"),
+        legend.position = "top",  # Sets the legend to the top of the plot
+        legend.justification = c(0.5, 1),  # Centers and anchors the legend at the top
+        legend.margin = margin(b = 5),  # Reduces space below the legend, moving it upwards
+        plot.margin = unit(c(1, 0, 0, 0), "cm"),  # Increased top margin
+        plot.title = element_text(hjust = 0.5, family = "Helvetica"),
+        legend.title = element_blank(),
+        legend.key.height = unit(0.1, "cm"),
+        legend.key.width = unit(0.2, "cm"),
+        axis.line = element_line(colour = "black", size = 0.3),
+        axis.ticks = element_line(colour = "black", size = 0.3),
+        strip.text = element_text(size = 6, family = "Helvetica")) +
+  ylab(NULL) + xlab("# of Differentially Expressed Genes") +
+  scale_x_continuous(position = "top", limits = c(0, 80), breaks = seq(0, 80, by = 20)) -> DE_plot
+
+# Print the plot
+print(DE_plot)
+
+
+df_complete %>%
+  ggplot() +
+  aes(y = fct_reorder(cell.type, Total_hf), x = delta_con_hf, fill = factor(brainR, levels = c("DVC", "ARC")), 
+      color = factor(comparison, levels = c("DVC", "ARC"))) +
+  geom_col(width = 0.5, position = position_dodge(width = 0.5), color = "black", alpha = 1, size = 0.3)+
+  scale_fill_manual(values = c("DVC" = "#237194", "ARC" = "#faa32b")) +
+  theme_pubr() +
+  theme(axis.text.y = element_text(size = 8, family = "Helvetica"),
+        axis.title = element_text(size = 6, family = "Helvetica"),
+        axis.text.x = element_text(size = 6, family = "Helvetica"),
+        legend.text = element_text(size = 5, family = "Helvetica"),
+        legend.position = "top",  # Sets the legend to the top of the plot
+        legend.justification = c(0.5, 1),  # Centers and anchors the legend at the top
+        legend.margin = margin(b = 5),  # Reduces space below the legend, moving it upwards
+        plot.margin = unit(c(1, 0, 0, 0), "cm"),  # Increased top margin
+        plot.title = element_text(hjust = 0.5, family = "Helvetica"),
+        legend.title = element_blank(),
+        legend.key.height = unit(0.1, "cm"),
+        legend.key.width = unit(0.2, "cm"),
+        axis.line = element_line(colour = "black", size = 0.3),
+        axis.ticks = element_line(colour = "black", size = 0.3),
+        strip.text = element_text(size = 6, family = "Helvetica")) +
+  ylab(NULL) + xlab("Change in # of DE genes") +
+  scale_x_continuous(position = "top", limits = c(-60, 80), breaks = seq(-60, 80, by = 30)) -> fig.delta
+
+plot1 <- DE_plot + 
+         plot_spacer() +  # Replaces ggplot() + theme_void()
+         (fig.delta + theme(axis.text.y = element_blank()))  +
+         plot_layout(widths = c(2.5, 0, 1.5))  # Adjusted widths for better fit
+
+write_xlsx(df_complete, "/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Output/DE_noNA/DEGs_edgeR_ARC_VMH_noneurons_glucose_response_HFD.xlsx")
+
+
+# Display the combined plot
+plot1
+pdf(file= "/projects/perslab/people/nvg559/glucose_project_directory/figures/draft/20240214_combind_DE_plot_nonneuronal_no_correlation_smaller.pdf", height = 3, width = 3)
+plot1
+dev.off()
+
+```
+
+## R Markdown
+```{r, fig.height=10, fig.width=5}
+HF_treatment<-readRDS("/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Output/DE_noNA/DEGs_edgeR_ARC_nonneurons_HFdiet_glucoseresponse_final_no_NA.rds")
+
+HF_treatment$`β2-Tanycytes` %>% rownames_to_column(var = "gene") %>%  mutate(
+    neg_log10_padj = -log10(PValue),
+    direction = if_else(logFC > 0, "up", "down", NA),
+    candidate = abs(logFC) >= 0.4 & FDR < 0.05
+    ) ->df
+
+
+df |> 
+  tidyplot(x = logFC, y = neg_log10_padj) |> 
+  add_data_points(data = filter_rows(!candidate),
+                  color = "lightgrey", rasterize = TRUE) |> 
+  add_data_points(data = filter_rows(candidate, direction == "up"),
+                  color = "#FF7777", alpha = 0.5) |> 
+  add_data_points(data = filter_rows(candidate, direction == "down"),
+                  color = "#7DA8E6", alpha = 0.5)  |> 
+  add_data_labels_repel(data = min_rows(FDR, 6, by = direction), label = gene,
+                        color = "#000000", min.segment.length = 0, background = TRUE) |> 
+  adjust_x_axis_title("$Log[2]~fold-change$") |> 
+  adjust_y_axis_title("$-Log[10]~italic(P)~adjusted$")-> plot
+
+write_xlsx(df, "/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Output/DE_noNA/DEGs_edgeR_ARC_VMH_noneurons_glucose_response_HFD_b_tanycytes.xlsx")
+
+
+library(Cairo)
+CairoPDF(file = "/projects/perslab/people/nvg559/glucose_project_directory/figures/draft/20250219_Volcano_plot_hfd_glucose_b2-Tanycytes.pdf", family = "Helvetica", width = 5, height = 6)
+print(plot) # Your ggplot object
+dev.off()
+```
+
+```{r}
+set_base_url("https://biit.cs.ut.ee/gprofiler_archive3/e111_eg58_p18")
+
+arc_dvc <- qread("/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Data/Arc_Dvc_nonneuronal_dio_filtered_labeled.qs")
+list_down <-HF_treatment$`β2-Tanycytes` %>% filter(FDR<=0.05) %>% filter(logFC<0) %>% rownames_to_column() %>% pull(rowname)
+
+arc_dvc_tany <-subset(arc_dvc, subset = sub.class == "β2-Tanycytes")
+
+
+list<-list_down 
+
+gene_names_tany <- rownames(arc_dvc_tany[["RNA"]])
+
+list_down <-HF_treatment$`β2-Tanycytes` %>% filter(FDR<=0.05) %>% filter(logFC<0) %>% rownames_to_column() %>% pull(rowname)
+module.GO.terms <- gost(query = list_down,
+                        organism = "mmusculus",
+                        custom_bg = gene_names_tany,
+                        ordered_query = F, correction_method = "fdr",
+                        exclude_iea = T,
+                        sources = c("GO:BP", "GO:MF", "GO:CC", "KEGG", "REAC"),
+                        evcodes = F, significant = T)
+
+
+module.GO.terms[[1]]
+module.GO.terms.astro[[1]] %>% dplyr::select(term_name, term_size,source, p_value,
+                                            intersection_size, term_id, significant, intersection) %>%
+  filter(term_size <= 500) %>% arrange(p_value) ->data
+
+module.GO.terms[[1]] %>% dplyr::select(term_name, term_size,source, p_value,
+                                            intersection_size, term_id, significant, intersection) %>%
+  filter(term_size <= 500) %>% arrange(p_value) -> data
+
+fwrite(data, "/maps/projects/perslab/people/nvg559/glucose_project_directory/data/processed/20250214_gse_down_HFD_b_tanycytes.csv")
+
+GO.terms <- module.GO.terms[[1]] %>% dplyr::select(term_name, term_size,source, p_value,
+                                            intersection_size, term_id, significant) %>%
+  filter(term_size <= 500) %>% arrange(p_value) %>% top_n(5, -p_value) %>%
+  mutate(x = fct_reorder(str_wrap(term_name, 5), -p_value)) %>%
+  mutate(y = -log10(p_value))
+
+
+
+DEGs.GO.plot.shared <- ggplot(GO.terms, aes(x, y)) + 
+  geom_col(aes(fill = factor(y)), colour="black", width=0.90, alpha=1, size=0.3) +
+  geom_text(aes(label=term_name), position=position_stack(vjust=.70), hjust=0.5, 
+            size=4, color="black", family="", check_overlap = TRUE) +
+  theme_pubr(legend="none") + 
+  theme(axis.text.x = element_text(size=10, family=""),
+        axis.text.y = element_blank(),
+        axis.title.x = element_text(size=12),
+        axis.line = element_line(colour="black", size=0.3),
+        axis.ticks = element_line(colour="black", size=0.3)) +
+  scale_fill_manual(values=rep("white", length(unique(GO.terms$y)))) + # Color for the bars
+  labs(title="GO-Terms (45 genes)", x="", y="-log(P-value)") +
+  coord_flip()
+
+DEGs.GO.plot.shared
+
+pdf(file= "/projects/perslab/people/nvg559/glucose_project_directory/figures/draft/20250219_gse_down_hfd_b_tanycytes.pdf", height = 4, width = 5)
+DEGs.GO.plot.shared
+dev.off()
+```
