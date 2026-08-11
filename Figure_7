@@ -1,0 +1,502 @@
+---
+title: "Format-Data-DE"
+author: "Jenny Brown"
+date: "23/05/2024"
+output: html_document
+params:
+  dvc_obj: "/projects/perslab/people/nvg559/glucose_project_directory/data/interim/merged_dio_DVC_neuron_filt_new_labels_removed_clust.rds"
+  DEGs_edgeR_dvc_file: "new_DEGs_edgeR_DVC_neurons_HFdiet_glucoseresponse_final_no_NA_m.rds"
+  arc_obj: "Vmh_arc_neurons_filt_processed_labeled_filtered_cellex.qs"
+  DEGs_edgeR_arc_file: "DEGs_edgeR_ARC_VMH_neurons_HFdiet_glucoseresponse_final_no_NA.rds"
+  data_set_name: "/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Output/Combine_arc_dvc/new_HFD_diet_Glu_response_arc_dvc_neurons.rds"
+---
+
+## Libraries
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(purrr)
+library(qs)
+library(readr)
+library(reshape2)
+library(ggpubr)
+library(readxl)
+library(qs)
+library(patchwork)
+```
+## Load Paths
+```{r}
+base_path <- "/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024"
+data_path <- file.path(base_path, "Data")
+output_path <- file.path(base_path, "Output")
+DE_noNA_path <- file.path(output_path, "DE_noNA")
+```
+
+## Function to process differentallly expressed gene 
+```{r}
+process_DEGs_data <- function(seurat_obj, DEGs_list, celltype_col, group_col, brain_region, fdr_threshold = 0.05, min_cells = 25) {
+  # Count cell types
+  
+  celltype_vec <- seurat_obj[[celltype_col]]
+  group_vec <- seurat_obj[[group_col]]
+
+# If either is a data frame, flatten it
+if (is.data.frame(celltype_vec)) celltype_vec <- celltype_vec[[1]]
+if (is.data.frame(group_vec)) group_vec <- group_vec[[1]]
+
+# Now build the table
+celltype_counts <- table(celltype_vec, group_vec)
+  #celltype_counts <- table(seurat_obj[[celltype_col]], seurat_obj[[group_col]])
+  valid_celltypes <- names(which(apply(celltype_counts, 1, function(x) all(x >= min_cells))))
+
+  # Filter the list of dataframes for significant DEGs
+  filtered_list <- DEGs_list %>%
+    keep(~ any(.x$FDR < fdr_threshold))
+
+  # Name dataframes in the list
+  df_list_named <- map2(filtered_list, names(filtered_list), ~ mutate(.x, celltype = .y))
+
+  # Define a function to convert row names to a column
+  add_gene_column <- function(df) {
+    df %>%
+      dplyr::mutate(gene = row.names(.)) %>%
+      dplyr::select(gene, everything())
+  }
+
+  # Apply the function to each element of the list
+  processed_DEGs <- purrr::map(df_list_named, add_gene_column)
+
+  # Combine and filter
+  combined_df <- bind_rows(processed_DEGs, .id = "celltype") %>%
+    filter(FDR < fdr_threshold)
+
+  # Generate gene counts
+  gene_counts <- combined_df %>%
+    group_by(celltype) %>%
+    summarize(
+      Total = n(),
+      Up = sum(logFC > 0),
+      Down = sum(logFC < 0)
+    ) %>%
+    arrange(desc(Total))
+
+  # Merge counts and reorder cell types
+  combined_df <- left_join(combined_df, gene_counts, by = "celltype")
+  combined_df$celltype <- factor(combined_df$celltype, levels = gene_counts$celltype)
+
+  # Calculate total DE and reorder
+  gene_counts <- gene_counts %>%
+    mutate(Total_DE = Up + Down)
+  combined_df <- combined_df %>%
+    mutate(celltype = factor(celltype, levels = gene_counts$celltype[order(gene_counts$Total_DE, decreasing = FALSE)]))
+
+  # Add brain region indicator
+  combined_df$brainR <- brain_region
+
+  return(combined_df)
+}
+
+```
+
+## Load Seurat Object and DE dataframe for both Brain Regions
+```{r}
+dvc <- readRDS(file.path(params$dvc_obj))
+DEGs_list_dvc <- readRDS(file.path(DE_noNA_path, params$DEGs_edgeR_dvc_file))
+arc <- qs::qread(file.path(data_path, params$arc_obj))
+DEGs_list_arc <- readRDS(file.path(DE_noNA_path, params$DEGs_edgeR_arc_file))
+```
+
+
+
+```{r}
+# run function on dvc
+result_df_dvc <- process_DEGs_data(
+  seurat_obj = dvc, 
+  DEGs_list = DEGs_list_dvc, 
+  celltype_col = "predicted.celltype", 
+  group_col = "group", 
+  brain_region = "DVC"
+)
+
+# run function on arc
+result_df_arc <- process_DEGs_data(
+  seurat_obj = arc, 
+  DEGs_list = DEGs_list_arc, 
+  celltype_col = "labels_2", 
+  group_col = "group", 
+  brain_region = "ARC"
+)
+
+result_df_dvc$celltype <- gsub("_(\\d+)_", "\\1.", result_df_dvc$celltype)
+
+result_df_arc$celltype <- gsub("_", "/", result_df_arc$celltype)
+
+# Combind arc/dvc
+DE_data <- rbind(result_df_dvc, result_df_arc)
+```
+```{r}
+# Construct file path based on parameters
+file_path <- paste0(params$data_set_name)
+
+saveRDS(DE_data, file = file_path)
+```
+
+```{r}
+# Custom consistent theme
+custom_theme <- function() {
+  theme_pubr() +
+  theme(
+    axis.text.y = element_text(size=8),
+    axis.title = element_text(size=8),
+    axis.text.x = element_text(size=6, angle=0, hjust=1),
+    legend.position = "none",
+    #legend.box.just = element_blank(),
+    title = element_text(size=8, face="plain"),
+    plot.margin = unit(c(0, 0, 0.25, 0), "cm"),
+    plot.title = element_text(hjust = 0.5),
+    axis.line = element_line(colour = "black", size = 0.3),
+    axis.ticks = element_line(colour = "black", size = 0.3)
+  )
+}
+```
+```{r}
+pal<-c("ARC"= "#faa32b","DVC"="#237194")
+```
+```{r}
+all <- DE_data %>%
+  dplyr::select(celltype, brainR, Total, Up, Down) %>%
+  distinct(celltype, brainR, .keep_all = TRUE)
+
+DEGs.plot <- ggplot(all, aes(x = Total, y = fct_reorder(celltype, Total), fill = brainR)) +
+  geom_bar(stat = "identity", position = position_dodge(), width = 0.5, size = 0.3) +  # Corrected the fill and color handling
+  scale_fill_manual(values = pal) +  # Ensure this matches your brainR labels exactly
+  theme_pubr() +  # Add pubr theme
+  custom_theme() +
+  ylab(NULL)  +
+  scale_x_continuous(breaks = seq(0, 60, 10), position = "top") 
+```
+
+
+```{r}
+Log_FC_dot <- ggplot(DE_data, aes(x = logFC, y = fct_reorder(celltype, Total), colour = brainR)) +
+  geom_point(alpha = 0.5, size = 2) +
+  scale_color_manual(values = pal) +
+  labs(
+    x = expression(Log[2] ~ "Fold-change"),
+    y = "Neuron populations",
+    title = ""
+  ) +
+  scale_x_continuous(position = "top") +
+  custom_theme()
+
+print(Log_FC_dot)
+```
+```{r,fig.height=12, fig.width=5}
+plot1 <- Log_FC_dot +  
+  (ggplot() + theme_void()) + 
+  (DEGs.plot + theme(axis.text.y = element_blank())) + 
+  plot_layout(widths = c(1.75, 0, 1.2))
+
+plot1
+```
+
+
+
+```{r}
+pdf(file= "/projects/perslab/people/nvg559/glucose_project_directory/figures/draft/Fig_6_DE_HFD_glu_response.pdf", height = 8, width = 5)
+print(plot1)
+dev.off()
+```
+```{r}
+combind<-readRDS("/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Output/Combine_arc_dvc/new_Kendall_cor_arc_dvc_neurons.rds")
+con<- readRDS("/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Output/Combine_arc_dvc/new_Con_diet_Glu_response_arc_dvc_neurons.rds")
+
+con$Total_con <- con$Total
+
+con %>% dplyr::select(Total_con,celltype)
+table(DE_data$celltype)
+table(con$celltype)
+
+delts <- left_join(DE_data, con, by = "celltype") %>%
+  dplyr::mutate(across(everything(), ~replace_na(.x, 0)))
+delts <- left_join(DE_data, con, by = "celltype") %>%
+  mutate(across(where(is.numeric), ~replace_na(.x, 0)))
+delt_all<-delts%>%mutate(delta=Total.x-Total_con)
+combind$celltype<-combind$Cell_Type
+delt_tau<-left_join(delt_all, combind, by = "celltype")
+
+plot_df <- delt_tau %>%
+  dplyr::select(
+    celltype,
+    Total = Total.x,
+    Total_con,
+    delta,
+    brainR = brainR.x,
+    tau,
+    adjusted_p_value
+  ) %>%
+  dplyr::distinct()
+write_xlsx(plot_df , "/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Output/DE_noNA/DEGs_edgeR_combine_neurons_glucose_response_HFD_group_delta_tau_correlation.xlsx")
+write_xlsx(DE_data , "/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Output/DE_noNA/DEGs_edgeR_combine_neurons_glucose_response_HFD_group_LogFC_total.xlsx")
+```
+```{r}
+Kendall_cor_arc_dvc <- ggplot(plot_df, aes(x = fct_reorder(celltype, Total), y = tau, 
+                                            color = ifelse(adjusted_p_value < 0.05, "red", "grey80"))) +
+  geom_boxplot() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black") +  # ← Add this line
+  scale_color_identity() +
+  labs(
+    y = "Correlation coefficient",
+    x = ""
+  ) +
+  coord_flip() +
+  scale_y_continuous(position = "right") +
+  custom_theme()
+```
+```{r}
+delta.plot <- ggplot(plot_df, aes(x = delta, y = fct_reorder(celltype, Total), fill = brainR)) +
+  geom_bar(stat = "identity", position = position_dodge(), width = 0.5, size = 0.3) +  # Corrected the fill and color handling
+  scale_fill_manual(values = pal) +  # Ensure this matches your brainR labels exactly
+  theme_pubr() +  # Add pubr theme
+  custom_theme() +
+  ylab(NULL)  +
+  scale_x_continuous(breaks = seq(-20, 30, 10), position = "top") 
+```
+
+```{r}
+plot1 <- Kendall_cor_arc_dvc +  
+  (ggplot() + theme_void()) + 
+  (delta.plot + theme(axis.text.y = element_blank())) +
+  plot_layout(widths = c(1, 0, 1))
+
+plot1
+
+```
+
+##If the row clustering put the positive logFC for the control diet on the it can be changed in the code below
+```{r}
+edgr_list_Control <- readRDS("/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Output/DE_noNA/DEGs_edgeR_ARC_VMH_neurons_Controldiet_glucoseresponse_final_no_NA.rds")
+edgr_list_HFD <- readRDS("/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Output/DE_noNA/DEGs_edgeR_ARC_VMH_neurons_HFdiet_glucoseresponse_final_no_NA.rds") 
+```
+
+
+```{r}
+control_df <- edgr_list_Control[["Ghrh"]] %>% rownames_to_column("gene")
+highfat_df <- edgr_list_HFD[["Ghrh"]] %>% rownames_to_column("gene")
+
+plot_significant_genes <- function(control_df, highfat_df, cell_type, fdr_cutoff = 0.05) {
+  
+  # 1. Subset each data frame for the specified cell type
+  control_subset <- control_df %>% 
+    filter(cell_type == cell_type)
+  
+  highfat_subset <- highfat_df %>%
+    filter(cell_type == cell_type)
+  
+  # 2. Filter for genes significant in Control (FDR < fdr_cutoff)
+  sig_control <- control_subset %>%
+    filter(FDR < fdr_cutoff)
+  
+  # 3. Extract the set of significant genes
+  sig_genes <- sig_control$gene
+  
+  # 4. Subset High Fat by these significant genes
+  highfat_subset_sig <- highfat_subset %>%
+    filter(gene %in% sig_genes)
+  
+  # 5. Combine logFC from both into one data frame
+  combined_df <- sig_control %>%
+    dplyr::select(gene, logFC_control = logFC) %>%
+    left_join(
+      highfat_subset_sig %>%
+        dplyr::select(gene, logFC_highfat = logFC),
+      by = "gene"
+    )
+  
+  # 6. Sort by descending logFC_control for plotting
+  heatmap_df <- combined_df %>%
+    arrange(desc(logFC_control))
+  
+  # 7. Create a matrix of just logFC columns and set row names
+  heatmap_mat <- as.matrix(heatmap_df[, c("logFC_control", "logFC_highfat")])
+  rownames(heatmap_mat) <- heatmap_df$gene
+  
+  # 8. Draw the heatmap without clustering rows (so it shows descending order)
+  pheatmap(
+    heatmap_mat,
+    cluster_rows = T,   # preserve manual ordering
+    cluster_cols = FALSE,   # optional; set to TRUE if you want column clustering
+    scale        = "none",
+    main         = paste("Significant Genes (Control vs High Fat) -", cell_type)
+  )
+    
+  source_data <- combined_df %>%
+  dplyr::mutate(cell_type = cell_type) %>%
+  dplyr::select(cell_type, gene, logFC_control, logFC_highfat)
+   return(source_data)  
+}
+
+# USAGE EXAMPLE:
+plot_significant_genes(control_df, highfat_df, cell_type = "Ghrh")->op
+
+CairoPDF(file = "/maps/projects/perslab/people/nvg559/glucose_project_directory/figures/draft/heatmap_Ghrh_neurons_logFC_control.pdf", family = "Helvetica", width = 2.8, height = 7)
+plot_significant_genes(control_df, highfat_df, cell_type = "Ghrh")
+dev.off()
+
+write_xlsx(op, "/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Output/DE_noNA/DEGs_edgeR_combine_Ghrh_neurons_DE_logFC.xlsx")
+```
+
+
+```{r}
+control_df <- edgr_list_Control[["Agrp"]] %>% rownames_to_column("gene")
+highfat_df <- edgr_list_HFD[["Agrp"]] %>% rownames_to_column("gene")
+
+plot_significant_genes_clustered <- function(control_df, highfat_df, cell_type, fdr_cutoff = 0.05) {
+  
+  # 1. Subset each data frame for the specified cell type
+  control_subset <- control_df %>% 
+    filter(cell_type == cell_type)
+  
+  highfat_subset <- highfat_df %>%
+    filter(cell_type == cell_type)
+  
+  # 2. Filter for genes significant in Control (FDR < fdr_cutoff)
+  sig_control <- control_subset %>%
+    filter(FDR < fdr_cutoff)
+  
+  # 3. Extract the set of significant genes
+  sig_genes <- sig_control$gene
+  
+  # 4. Subset High Fat by these significant genes
+  highfat_subset_sig <- highfat_subset %>%
+    filter(gene %in% sig_genes)
+  
+  # 5. Combine logFC from both into one data frame
+  combined_df <- sig_control %>%
+    dplyr::select(gene, logFC_control = logFC) %>%
+    left_join(
+      highfat_subset_sig %>%
+        dplyr::select(gene, logFC_highfat = logFC),
+      by = "gene"
+    )
+  
+  source_data <- combined_df %>%
+  dplyr::mutate(cell_type = cell_type) %>%
+  dplyr::select(cell_type, gene, logFC_control, logFC_highfat)
+  
+  # 6. Create matrix of just logFC columns
+  heatmap_mat <- as.matrix(combined_df[, c("logFC_control", "logFC_highfat")])
+  rownames(heatmap_mat) <- combined_df$gene
+  
+  # 7. Compute clustering for rows
+  row_hclust <- hclust(dist(heatmap_mat), method = "complete")
+  row_dend <- as.dendrogram(row_hclust)
+  
+  # 8. Reorder the dendrogram primarily by logFC_control
+  #    (so that genes with higher logFC_control appear near one end)
+  #    agglo.FUN=mean means it uses average logFC_control of sub-branches to order them.
+  row_dend_reordered <- reorder(row_dend, w = heatmap_mat[, "logFC_control"], agglo.FUN = mean)
+  
+  # 9. Optionally flip (reverse) the entire tree top<->bottom
+  #    If you see that positive values end up at the bottom, you can do:
+  row_dend_flipped <- rev(row_dend_reordered)
+  
+  # Convert flipped dendrogram back to an hclust object:
+  row_hclust_flipped <- as.hclust(row_dend_flipped)
+  
+  # 10. Plot the heatmap with the custom dendrogram
+  pheatmap(
+    heatmap_mat,
+    cluster_rows = row_hclust_flipped,  # or row_dend_reordered if you don't want to flip
+    cluster_cols = FALSE,             # optional
+    scale        = "none",            # or "row" if you prefer
+    main         = paste("Sig Genes (Glucose vs Saline) -", cell_type)
+  )
+ return(source_data)  
+}
+
+
+plot_significant_genes_clustered(control_df, highfat_df, cell_type = "Agrp")->op
+
+write_xlsx(op, "/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Output/DE_noNA/DEGs_edgeR_combine_Agrp_neurons_DE_logFC.xlsx")
+
+CairoPDF(file = "/maps/projects/perslab/people/nvg559/glucose_project_directory/figures/draft/heatmap_Agrp_neurons_logFC_control.pdf", family = "Helvetica", width = 2.8, height = 7)
+plot_significant_genes_clustered(control_df, highfat_df, cell_type = "Agrp")
+dev.off()
+```
+
+```{r}
+control_df <- edgr_list_Control$Th_Slc6a3 %>% rownames_to_column("gene")
+highfat_df <- edgr_list_HFD$Th_Slc6a3 %>% rownames_to_column("gene")
+
+plot_significant_genes_clustered <- function(control_df, highfat_df, cell_type, fdr_cutoff = 0.05) {
+  
+  # 1. Subset each data frame for the specified cell type
+  control_subset <- control_df %>% 
+    filter(cell_type == cell_type)
+  
+  highfat_subset <- highfat_df %>%
+    filter(cell_type == cell_type)
+  
+  # 2. Filter for genes significant in Control (FDR < fdr_cutoff)
+  sig_control <- control_subset %>%
+    filter(FDR < fdr_cutoff)
+  
+  # 3. Extract the set of significant genes
+  sig_genes <- sig_control$gene
+  
+  # 4. Subset High Fat by these significant genes
+  highfat_subset_sig <- highfat_subset %>%
+    filter(gene %in% sig_genes)
+  
+  # 5. Combine logFC from both into one data frame
+  combined_df <- sig_control %>%
+    dplyr::select(gene, logFC_control = logFC) %>%
+    left_join(
+      highfat_subset_sig %>%
+        dplyr::select(gene, logFC_highfat = logFC),
+      by = "gene"
+    )
+  
+  source_data <- combined_df %>%
+  dplyr::mutate(cell_type = cell_type) %>%
+  dplyr::select(cell_type, gene, logFC_control, logFC_highfat)
+  
+  # 6. Create matrix of just logFC columns
+  heatmap_mat <- as.matrix(combined_df[, c("logFC_control", "logFC_highfat")])
+  rownames(heatmap_mat) <- combined_df$gene
+  
+  # 7. Compute clustering for rows
+  row_hclust <- hclust(dist(heatmap_mat), method = "complete")
+  row_dend <- as.dendrogram(row_hclust)
+  
+  # 8. Reorder the dendrogram primarily by logFC_control
+  #    (so that genes with higher logFC_control appear near one end)
+  #    agglo.FUN=mean means it uses average logFC_control of sub-branches to order them.
+  row_dend_reordered <- reorder(row_dend, w = heatmap_mat[, "logFC_control"], agglo.FUN = mean)
+  
+  # 9. Optionally flip (reverse) the entire tree top<->bottom
+  #    If you see that positive values end up at the bottom, you can do:
+  row_dend_flipped <- rev(row_dend_reordered)
+  
+  # Convert flipped dendrogram back to an hclust object:
+  row_hclust_flipped <- as.hclust(row_dend_flipped)
+  
+  # 10. Plot the heatmap with the custom dendrogram
+  pheatmap(
+    heatmap_mat,
+    cluster_rows = row_hclust_flipped,  # or row_dend_reordered if you don't want to flip
+    cluster_cols = FALSE,             # optional
+    scale        = "none",            # or "row" if you prefer
+    main         = paste("Sig Genes (Glucose vs Saline) -", cell_type)
+  )
+ return(source_data)  
+}
+
+
+plot_significant_genes_clustered(control_df, highfat_df, cell_type = "Th_Slc6a3")->op
+
+write_xlsx(op, "/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Output/DE_noNA/DEGs_edgeR_combine_Th_Slc6a3_neurons_DE_logFC.xlsx")
+
+```
