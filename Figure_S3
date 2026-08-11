@@ -1,0 +1,185 @@
+---
+title: "Untitled"
+output: html_document
+date: "2025-05-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(tidyplots)
+
+arc_dvc <- qread("/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Data/Arc_Dvc_nonneuronal_dio_filtered_labeled.qs")
+DEGs.neurons.sal <-
+    readRDS("/projects/perslab/data/yggdrasil/projects/nvg559/Glucose_paper/Brown-2024/Output/DE_noNA/DEGs_edgeR_ARC_nonneurons_diet_response_saline_group_final_no_NA.rds")
+```
+
+
+```{r}
+library(tidyverse)
+
+# Read your CSV file
+df <- read_csv("/projects/perslab/people/nvg559/glucose_project_directory/data/processed/gfap_western.csv")
+# ARC data
+df_arc <- df %>% filter(str_detect(Group, "ARC"))
+
+# DVC data
+df_dvc <- df %>% filter(str_detect(Group, "DVC"))
+# ARC Plot
+# ARC Plot with points
+# Define custom colors
+my_colors <- c(
+  "ARC HFD" = "#228B22",   # Forest green
+  "ARC C" = "#90EE90",     # Light forest green
+  "DVC HFD" = "#006400",   # Darker forest green
+  "DVC C" = "#98FB98"      # Pale green
+)
+
+# ARC Plot (no coord_flip, x = group)
+# ARC Plot
+p_arc <- ggplot(df_arc, aes(x = Group, y = Value, color = Group)) +
+  geom_point(size = 3, position = position_dodge(width = 0.6)) +
+  scale_color_manual(values = my_colors) +
+  scale_y_continuous(limits = c(0, 0.34), breaks = seq(0, 0.3, 0.1)) +
+  labs(title = "ARC/VMH", x = "", y = "GFAP/Total protein ratio") +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_blank(),
+    axis.line = element_line(color = "black"),
+    axis.ticks = element_line(color = "black")
+  )
+
+# DVC Plot
+p_dvc <- ggplot(df_dvc, aes(x = Group, y = Value, color = Group)) +
+  geom_point(size = 3, position = position_dodge(width = 0.6)) +
+  scale_color_manual(values = my_colors) +
+  scale_y_continuous(limits = c(0, 0.34), breaks = seq(0, 0.3, 0.1)) +
+  labs(title = "DVC", x = "", y = "GFAP/Total protein ratio") +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_blank(),
+    axis.line = element_line(color = "black"),
+    axis.ticks = element_line(color = "black")
+  )
+
+p_arc+p_dvc
+wb<-rbind(df_arc,df_dvc)
+
+write.xlsx(
+  wb,
+  file = "/projects/perslab/people/nvg559/glucose_project_directory/data/processed/gfap_western.xlsx",
+  overwrite = TRUE
+) 
+
+pdf(file= "/projects/perslab/people/nvg559/glucose_project_directory/figures/draft/arc_gfap_western.pdf", height = 3, width = 3)
+p_arc
+dev.off()
+
+```
+
+
+Astrocyte Diet response
+```{r}
+list_down <-DEGs.neurons.sal$Astrocytes %>% filter(FDR<=0.05) %>% filter(logFC<0) %>% rownames_to_column() %>% pull(rowname)
+list_up <-DEGs.neurons.sal$Astrocytes %>% filter(FDR<=0.05) %>% filter(logFC>0) %>% rownames_to_column() %>% pull(rowname)
+arc_dvc_astro <-subset(arc_dvc, subset = sub.class == "Astrocytes")
+gene_names <- rownames(arc_dvc_astro[["RNA"]])
+```
+
+```{r}
+module.GO.terms.astro <- gost(query = list_up,
+                        organism = "mmusculus",
+                        custom_bg = gene_names,
+                        ordered_query = F, correction_method = "fdr",
+                        exclude_iea = T,
+                        sources = c("GO:BP", "GO:MF", "GO:CC", "KEGG", "REAC"),
+                        evcodes = T)
+
+  
+GO.terms.astro.diet.up <- module.GO.terms.astro[[1]] %>% dplyr::select(term_name, term_size,source, p_value,
+                                            intersection_size, term_id, intersection) %>%
+  filter(term_size <= 500) %>% arrange(p_value) %>% filter(p_value <0.05) %>%
+  mutate(x = fct_reorder(str_wrap(term_name, 6), -p_value)) %>%
+  mutate(y = -log10(p_value)) %>%
+  mutate(cell.type = "Astrocyte_diet_up")
+```
+```{r}
+module.GO.terms.astro <- gost(query = list_down,
+                        organism = "mmusculus",
+                        custom_bg = gene_names,
+                        ordered_query = F, correction_method = "fdr",
+                        exclude_iea = T,
+                        sources = c("GO:BP", "GO:MF", "GO:CC", "KEGG", "REAC"),
+                        evcodes = T)
+
+  
+GO.terms.astro.diet.down <- module.GO.terms.astro[[1]] %>% dplyr::select(term_name, term_size,source, p_value,
+                                            intersection_size, term_id, intersection) %>%
+  filter(term_size <= 500) %>% arrange(p_value) %>% filter(p_value <0.05) %>%
+  mutate(x = fct_reorder(str_wrap(term_name, 6), -p_value)) %>%
+  mutate(y = -log10(p_value)) %>%
+  mutate(cell.type = "Astrocyte_diet_down")
+```
+```{r, fig.height= 5}
+astroterms.down <- GO.terms.astro.diet.down %>% dplyr::select(term_name,p_value,source) %>% top_n(6, wt = -p_value) %>%  pull(term_name)
+astroterms.up <- GO.terms.astro.diet.up %>% dplyr::select(term_name,p_value,source) %>% top_n(6, wt = -p_value) %>%  pull(term_name)
+
+allterms <- c(astroterms.down,astroterms.up)
+
+combined_data <- bind_rows(GO.terms.astro.diet.down %>% dplyr::select(term_name,p_value,source, intersection),
+          GO.terms.astro.diet.up %>% dplyr::select(term_name,p_value,source, intersection),
+          .id="ct") %>% 
+  filter(term_name %in% allterms)
+
+heatmap_data <- combined_data %>% mutate(
+    term_name = str_to_title(str_wrap(term_name, 30), locale = "en"),
+    ctt = factor(ct, levels = c("1", "2"), labels = c("DIO-down", "DIO-up")),
+    neg_log_p_value = ifelse(is.na(p_value), NA, -log10(p_value))
+  )
+
+write.xlsx(
+  heatmap_data,
+  file = "/projects/perslab/people/nvg559/glucose_project_directory/data/processed/astrcoyte_HFD_goterms.xlsx",
+  overwrite = TRUE
+) 
+
+ggplot(heatmap_data, aes(
+  x = reorder(term_name, neg_log_p_value),
+  y = neg_log_p_value,
+  fill = ctt
+)) +
+  geom_col(color = NA, width = 0.7) +     # No outlines
+  coord_flip() +
+  # Manually define colors for the two groups
+  scale_fill_manual(values = c("DIO-up" = "darkgrey", 
+                               "DIO-down" = "lightgrey")) +
+  labs(x = NULL, y = expression(-log[10](p))) +
+  theme_minimal(base_size = 14) +
+  theme(legend.title = element_blank())-> dd_plot
+
+dd_plot <- ggplot(heatmap_data, aes(
+  x = reorder(term_name, neg_log_p_value),
+  y = neg_log_p_value,
+  fill = ctt
+)) +
+  geom_col(color = NA, width = 0.7) +
+  coord_flip() +
+  scale_fill_manual(values = c("DIO-up" = "darkgrey", 
+                               "DIO-down" = "lightgrey")) +
+  labs(x = NULL, y = expression(-log[10](P-value))) +
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.grid = element_blank(),           # Remove all grid lines
+    panel.background = element_blank(),     # Remove background
+    legend.title = element_blank(),         # No legend title
+    legend.position = "top",                # Move legend to top
+    axis.line = element_line(color = "black"), # Add axis lines
+    axis.ticks = element_line(color = "black") # Add axis ticks
+  )
+
+```
